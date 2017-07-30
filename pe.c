@@ -7,7 +7,11 @@ optional header
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <time.h>
 #include "backend.h"
+
+#pragma pack(1)
 
 #define PE_MAGIC "PE\0\0"
 #define MAGIC_SIZE 4
@@ -55,22 +59,75 @@ optional header
 #define COFF_FLAG_DLL 0x2000 //The image file is a dynamic-link library (DLL). Such files are considered executable files for almost all purposes, although they cannot be directly run.
 #define COFF_FLAG_UP_SYSTEM_ONLY 0x4000 //The file should be run only on a uniprocessor machine.
 #define COFF_FLAG_BYTES_REVERSED_HI 0x8000 //Big endian: the MSB precedes the LSB in memory. This flag is deprecated and should be zero.
-
 typedef struct coff_header
 {
    unsigned short machine; // see IMAGE_FILE_MACHINE_
    unsigned short num_sections;
-   unsigned long  time_created;
-   unsigned long  offset_symtab; // offset to symbol table
-   unsigned long  num_symbols;   // number of entries in symbol table
+   unsigned int  time_created;
+   unsigned int  offset_symtab; // offset to symbol table
+   unsigned int  num_symbols;   // number of entries in symbol table
    unsigned short size_optional_hdr;
    unsigned short flags;         // see COFF_FLAGS_
 } coff_header;
 
+struct machine_name
+{
+   unsigned short id;
+   char name[31+1];
+};
+
+static const struct machine_name machine_lookup[] = 
+{
+   { IMAGE_FILE_MACHINE_UNKNOWN,    "Unknown machine" },
+   { IMAGE_FILE_MACHINE_AM33,       "Matsushita AM33" },
+   { IMAGE_FILE_MACHINE_AMD64,      "x64" },
+   { IMAGE_FILE_MACHINE_ARM,        "ARM little endian" },
+   { IMAGE_FILE_MACHINE_ARM64,      "ARM64 little endian" },
+   { IMAGE_FILE_MACHINE_ARMNT,      "ARM Thumb-2 little endian" },
+   { IMAGE_FILE_MACHINE_EBC,        "EFI byte code" },
+   { IMAGE_FILE_MACHINE_I386,       "Intel 386 or later" },
+   { IMAGE_FILE_MACHINE_IA64,       "Intel Itanium" },
+   { IMAGE_FILE_MACHINE_M32R,       "Mitsubishi M32R little endian" },
+   { IMAGE_FILE_MACHINE_MIPS16,     "MIPS16" },
+   { IMAGE_FILE_MACHINE_MIPSFPU,    "MIPS with FPU" },
+   { IMAGE_FILE_MACHINE_MIPSFPU16,  "MIPS16 with FPU" },
+   { IMAGE_FILE_MACHINE_POWERPC,    "Power PC little endian" },
+   { IMAGE_FILE_MACHINE_POWERPCFP,  "Power PC with floating point" },
+   { IMAGE_FILE_MACHINE_R4000,      "MIPS little endian" },
+   { IMAGE_FILE_MACHINE_RISCV32,    "RISC-V 32-bit address space" },
+   { IMAGE_FILE_MACHINE_RISCV64,    "RISC-V 64-bit address space" },
+   { IMAGE_FILE_MACHINE_RISCV128,   "RISC-V 128-bit address space" },
+   { IMAGE_FILE_MACHINE_SH3,        "Hitachi SH3" },
+   { IMAGE_FILE_MACHINE_SH3DSP,     "Hitachi SH3 DSP" },
+   { IMAGE_FILE_MACHINE_SH4,        "Hitachi SH4" },
+   { IMAGE_FILE_MACHINE_SH5,        "Hitachi SH5" },
+   { IMAGE_FILE_MACHINE_THUMB,      "Thumb" },
+   { IMAGE_FILE_MACHINE_WCEMIPSV2,  "MIPS little-endian WCE v2" },
+};
+
+const char* lookup_machine(unsigned short machine)
+{
+   for (int i=0; i < sizeof(machine_lookup)/sizeof(struct machine_name); i++)
+      if (machine_lookup[i].id == machine)
+         return machine_lookup[i].name;
+   return machine_lookup[0].name;
+}
+
+void dump_coff(coff_header* h)
+{
+   printf("machine: %s\n", lookup_machine(h->machine));
+   printf("num sections: %u\n", h->num_sections);
+   time_t creat = h->time_created;
+   printf("created: %s\n", ctime(&creat));
+   printf("symtab offset: %u\n", h->offset_symtab);
+   printf("num symbols: %u\n", h->num_symbols);
+   printf("exe header size: %u\n", h->size_optional_hdr);
+   printf("flags: 0x%X\n", h->flags);
+}
+
 backend_object* coff_read_file(const char* filename)
 {
-   printf("coff_read_file\n");
-   char buff[MAGIC_SIZE];
+   char buff[sizeof(coff_header)];
 
    FILE* f = fopen(filename, "rb");
    if (!f)
@@ -78,14 +135,6 @@ backend_object* coff_read_file(const char* filename)
       printf("can't open file\n");
       return 0;
    }
-
-   //int size = sizeof(coff_header) + sizeof(pe_header);
-   //printf("Reading %i bytes\n", size);
-   //fread(buff, size, 1, f);
-
-   //pe_header* pe = (pe_header*)buff;
-   //if (memcmp(pe->pe_magic, PE_MAGIC, 4) == 0)
-   //   printf("found PE magic number\n");
 
    // get size of the file
    fseek(f, 0, SEEK_END);
@@ -97,15 +146,24 @@ backend_object* coff_read_file(const char* filename)
    // read location 0x3C to find the offset of the magic number
    fseek(f, MAGIC_LOCATOR, SEEK_SET);
    fread(buff, MAGIC_SIZE, 1, f);
-   printf("magic at offset=0x%x\n", *(unsigned int*)buff);
    if (*(unsigned int*)buff >= fsize)
       return 0;
 
    fseek(f, *(unsigned int*)buff, SEEK_SET);
    fread(buff, MAGIC_SIZE, 1, f);
-   if (memcmp(buff, PE_MAGIC, 4) == 0)
-      printf("found PE magic number\n");
-   return 0;
+   if (memcmp(buff, PE_MAGIC, 4) != 0)
+      return 0;
+   
+   printf("found PE magic number\n");
+   backend_object* obj = malloc(sizeof(backend_object));
+   if (!obj)
+      return 0;
+   backend_set_type(obj, OBJECT_TYPE_PE32);
+   // read the coff header
+   fread(buff, sizeof(coff_header), 1, f);
+   coff_header* h = (coff_header*)buff;
+   dump_coff(h);
+   return obj;
 }
 
 backend_ops coff =
@@ -115,6 +173,5 @@ backend_ops coff =
 
 void pe_init(void)
 {
-   printf("pe_init ops=0x%x\n", &coff);
    backend_register(&coff);
 }

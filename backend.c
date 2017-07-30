@@ -16,7 +16,6 @@ int backend_init(void)
 
 void backend_register(backend_ops* be)
 {
-   printf("backend_register 0x%x\n", be);
    if (num_backends < MAX_BACKENDS)
       backend[num_backends++] = be;
    printf("num backends %i\n", num_backends);
@@ -38,4 +37,9 @@ backend_object* backend_read(const char* filename)
 int backend_write(const char* filename, backend_object* obj)
 {
    return 0;
+}
+
+void backend_set_type(backend_object* obj, backend_type t)
+{
+   obj->type = t;
 }
