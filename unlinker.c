@@ -40,14 +40,29 @@ usage(void)
    fprintf(stderr, "unlinker <input file>\n");
 }
 
+static int reconstruct_symbols(backend_object* obj)
+{
+   return 0;
+}
+
 static int
 unlink_file(const char* input_filename, const char* output_target)
 {
-   backend_object* inobj = backend_read(input_filename);
+   backend_object* obj = backend_read(input_filename);
 
-   // check the input file type
+   if (backend_symbol_count(obj) == 0)
+   {
+      if (config.reconstruct_symbols == 0)
+         return -ERR_NO_SYMS;
+      else
+      {
+         reconstruct_symbols(obj);
+         if (backend_symbol_count(obj) == 0)
+            return -ERR_NO_SYMS_AFTER_RECONSTRUCT;
+      }
+   }
+
    // if the output target is not specified, use the input target
-   // allocate an outgoing symbol table
    // get the filenames from the input symbol table
       /* iterate through all sections of the input file until we find the text section */
    /* iterate over all symbols in the input table */
@@ -118,8 +133,11 @@ main (int argc, char *argv[])
    case -ERR_BAD_FORMAT:
       printf("Unexpected input file format\n");
       break;
-   case -8:
+   case -ERR_NO_SYMS:
       printf("No symbols found - try again with --reconstruct-symbols\n");
+      break;
+   case -ERR_NO_SYMS_AFTER_RECONSTRUCT:
+      printf("No symbols found even after attempting to recreate them - maybe the code section is empty?\n");
       break;
    }
 

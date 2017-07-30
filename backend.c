@@ -1,5 +1,6 @@
-#include "backend.h"
 #include <stdio.h>
+#include "backend.h"
+#include "ll.h"
 
 #define MAX_BACKENDS 3
 #define DECLARE_BACKEND(_x) extern int _x##_init()
@@ -43,3 +44,18 @@ void backend_set_type(backend_object* obj, backend_type t)
 {
    obj->type = t;
 }
+
+unsigned int backend_symbol_count(backend_object* obj)
+{
+   if (obj->symbol_table)
+      return ll_size(obj->symbol_table);
+   else
+      return 0;
+}
+
+int backend_add_symbol(backend_object* obj, const char* name, unsigned int val, unsigned int type, unsigned int flags)
+{
+   if (!obj->symbol_table)
+      obj->symbol_table = ll_init();
+}
+
