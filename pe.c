@@ -98,6 +98,7 @@ typedef enum subsystem
    IMAGE_SUBSYSTEM_XBOX, //14 XBOX
    IMAGE_SUBSYSTEM_15, //15 unknown
    IMAGE_SUBSYSTEM_WINDOWS_BOOT_APPLICATION, //16 Windows boot application.
+   IMAGE_SUBSYSTEM_MAX
 } subsystem;
 
 typedef struct coff_header
@@ -113,15 +114,14 @@ typedef struct coff_header
 
 typedef struct optional_header
 {
-   unsigned short state; // STATE_ID_
    unsigned char major_linker_ver;
    unsigned char minor_linker_ver;
    unsigned int code_size;
    unsigned int data_size;
    unsigned int uninit_data_size;
    unsigned int entry;
-   unsigned int base;
-   // only in PE32 (not PE32+) unsigned int data_base;
+   unsigned int code_base;
+   unsigned int data_base;
 } optional_header;
 
 typedef struct pe32_windows_header
@@ -204,6 +204,27 @@ static const char* flags_lookup[] =
    "Big endian"
 };
 
+static const char* subsystem_lookup[] = 
+{
+   "An unknown subsystem",
+   "Device drivers and native Windows processes",
+   "The Windows graphical user interface (GUI) subsystem",
+   "The Windows character subsystem",
+   "IMAGE_SUBSYSTEM_4",
+   "The OS/2 character subsystem",
+   "IMAGE_SUBSYSTEM_6",
+   "The Posix character subsystem",
+   "Native Win9x driver",
+   "Windows CE",
+   "An Extensible Firmware Interface (EFI) application",
+   "An EFI driver with boot services",
+   "An EFI driver with run-time services",
+   "An EFI ROM image",
+   "XBOX",
+   "unknown",
+   "Windows boot application"
+};
+
 const char* lookup_machine(unsigned short machine)
 {
    for (int i=0; i < sizeof(machine_lookup)/sizeof(struct machine_name); i++)
@@ -227,16 +248,56 @@ void dump_coff(coff_header* h)
          printf("   - %s\n", flags_lookup[i]);
 }
 
-void dump_optional(optional_header* h)
+void dump_optional(optional_header* h, unsigned short state)
 {
-   printf("state: 0x%x\n", h->state);
-   printf("link ver: %i %i\n", h->major_linker_ver, h->minor_linker_ver);
+   printf("state: ");
+   switch(state)
+   {
+   case STATE_ID_NORMAL:
+      printf("PE32\n");
+      break;
+   case STATE_ID_ROM:
+      printf("PE ROM\n");
+      break;
+   case STATE_ID_PE32PLUS:
+      printf("PE32+\n");   
+      break;
+   default:
+      printf("Unknown\n");
+   }
+   printf("link ver: %i.%i\n", h->major_linker_ver, h->minor_linker_ver);
    printf("code size: %i\n", h->code_size);
    printf("data size: %i\n", h->data_size);
    printf("uninit data size: %i\n", h->uninit_data_size);
    printf("entry: 0x%x\n", h->entry);
-   printf("base: 0x%x\n", h->base);
+   printf("code base: 0x%x\n", h->code_base);
+   if (state == STATE_ID_NORMAL)
+      printf("date base: 0x%x\n", h->data_base);
 }
+
+void dump_pe32_windows(pe32_windows_header* h)
+{
+   printf("Base: 0x%u\n", h->base);
+   printf("Section alignment: %u\n", h->section_alignment);
+   unsigned int file_alignment;
+   printf("OS version: %u.%u\n", h->os_major, h->os_minor);
+   printf("Image version: %u.%u\n", h->image_major, h->image_minor);
+   printf("Subsystem version: %u.%u\n", h->subsys_major, h->subsys_minor);
+   //unsigned int image_size;
+   //unsigned int header_size;
+   //unsigned int checksum;
+   if (h->subsystem >= IMAGE_SUBSYSTEM_MAX)
+      h->subsystem = 0;
+   printf("Subsystem: %s\n", subsystem_lookup[h->subsystem]); // see IMAGE_SUBSYSTEM_
+   //unsigned short dll_chars;
+   //unsigned int stack_size;
+   //unsigned int stack_commit_size;
+   //unsigned int heap_size;
+   //unsigned int heap_commit_size;
+   //unsigned int loader_flags;
+   //unsigned int num_rva;
+}
+
 
 backend_object* coff_read_file(const char* filename)
 {
@@ -285,17 +346,54 @@ backend_object* coff_read_file(const char* filename)
       return 0;
    }
 
-   backend_set_type(obj, OBJECT_TYPE_PE32);
    // read the coff header
    fread(buff, sizeof(coff_header), 1, f);
    dump_coff((coff_header*)buff);
-   int optional_header_size = ((coff_header*)buff)->size_optional_hdr;
+   //int optional_header_size = ((coff_header*)buff)->size_optional_hdr;
+
+   unsigned short state; // STATE_ID_
+   fread(&state, sizeof(state), 1, f);
 
    // read the optional header
    free(buff);
-   buff = malloc(optional_header_size);
-   fread(buff, sizeof(optional_header), 1, f);
-   dump_optional((optional_header*)buff);
+   //printf("Reading %i from optional header (%lu)\n", optional_header_size, sizeof(optional_header));
+   //buff = malloc(optional_header_size);
+   //fread(buff, optional_header_size, 1, f);
+   //dump_optional((optional_header*)buff);
+
+   switch(state)
+   {
+   case STATE_ID_NORMAL:
+      backend_set_type(obj, OBJECT_TYPE_PE32);
+      // read the optional header
+      buff = malloc(sizeof(optional_header));
+      fread(buff, sizeof(optional_header), 1, f);
+      dump_optional((optional_header*)buff, state);
+
+      // read the windows-specific header
+      free(buff);
+      buff = malloc(sizeof(pe32_windows_header));
+      fread(buff, sizeof(pe32_windows_header), 1, f);
+      dump_pe32_windows((pe32_windows_header*)buff);
+      break;
+
+   case STATE_ID_ROM:
+      backend_set_type(obj, OBJECT_TYPE_PE_ROM);
+      break;
+
+   case STATE_ID_PE32PLUS:
+      backend_set_type(obj, OBJECT_TYPE_PE32PLUS);
+      free(buff);
+      //buff = malloc(sizeof(pe32_windows_header));
+      //fread(buff, sizeof(pe32_windows_header), 1, f);
+      //dump_pe32plus_windows((pe32_windows_header*)buff);
+      break;
+
+   default:
+      printf("Unknown\n");
+   }
+   // fill the symbol table
+   //backend_add_symbol(obj, name, val, type, flags);
    return obj;
 }
 
