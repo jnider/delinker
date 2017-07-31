@@ -149,6 +149,31 @@ typedef struct pe32_windows_header
    unsigned int num_rva;
 } pe32_windows_header;
 
+typedef struct data_dir
+{
+   unsigned int address;
+   unsigned int size;
+} data_dir;
+
+typedef struct data_dirs
+{
+   data_dir export;
+   data_dir import;
+   data_dir resource;
+   data_dir exception;
+   data_dir certificate;
+   data_dir relocation;
+   data_dir debug;
+   data_dir arch;
+   data_dir ptr;
+   data_dir tls;
+   data_dir load;
+   data_dir bound;
+   data_dir iat;
+   data_dir delay;
+   data_dir clr;
+} data_dirs;
+
 struct machine_name
 {
    unsigned short id;
@@ -277,7 +302,7 @@ void dump_optional(optional_header* h, unsigned short state)
 
 void dump_pe32_windows(pe32_windows_header* h)
 {
-   printf("Base: 0x%u\n", h->base);
+   printf("Base: 0x%x\n", h->base);
    printf("Section alignment: %u\n", h->section_alignment);
    unsigned int file_alignment;
    printf("OS version: %u.%u\n", h->os_major, h->os_minor);
@@ -298,6 +323,11 @@ void dump_pe32_windows(pe32_windows_header* h)
    //unsigned int num_rva;
 }
 
+void dump_data_dirs(data_dirs* h)
+{
+   printf("Export: 0x%x (%u)\n", h->export.address, h->export.size);
+   printf("Import: 0x%x (%u)\n", h->import.address, h->import.size);
+}
 
 backend_object* coff_read_file(const char* filename)
 {
@@ -356,11 +386,6 @@ backend_object* coff_read_file(const char* filename)
 
    // read the optional header
    free(buff);
-   //printf("Reading %i from optional header (%lu)\n", optional_header_size, sizeof(optional_header));
-   //buff = malloc(optional_header_size);
-   //fread(buff, optional_header_size, 1, f);
-   //dump_optional((optional_header*)buff);
-
    switch(state)
    {
    case STATE_ID_NORMAL:
@@ -392,6 +417,15 @@ backend_object* coff_read_file(const char* filename)
    default:
       printf("Unknown\n");
    }
+
+   // read the data directories
+   free(buff);
+   buff = malloc(sizeof(data_dirs));
+   fread(buff, sizeof(data_dirs), 1, f);
+   dump_data_dirs((data_dirs*)buff);
+
+   // read the sections
+
    // fill the symbol table
    //backend_add_symbol(obj, name, val, type, flags);
    return obj;
