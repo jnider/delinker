@@ -79,6 +79,8 @@ optional header
 #define COFF_FLAG_BYTES_REVERSED_HI    0x8000 //Big endian
 #define COFF_FLAG_SHIFT_BYTES_REVERSED_HI 15
 
+#define SYM_CLASS_FILE 103
+
 typedef enum subsystem
 {
    IMAGE_SUBSYSTEM_UNKNOWN, //0 An unknown subsystem
@@ -173,6 +175,25 @@ typedef struct data_dirs
    data_dir delay;
    data_dir clr;
 } data_dirs;
+
+typedef struct symbol
+{
+   union
+   {
+      char str[8];
+      struct
+      {
+         unsigned int zeros;
+         unsigned int index;
+      } ptr;
+   } name;
+   unsigned int val;
+   short section; // index, 0=external, -1=abs, -2=debugging (file)
+   unsigned char b_type; // base type
+   unsigned char c_type; // complex type
+   unsigned char class;
+   unsigned char auxsymbols;
+} symbol;
 
 struct machine_name
 {
@@ -329,6 +350,48 @@ void dump_data_dirs(data_dirs* h)
    printf("Import: 0x%x (%u)\n", h->import.address, h->import.size);
 }
 
+void dump_symtab(symbol* symtab, unsigned int count, char* stringtab)
+{
+   char nametmp[20];
+   int aux=0;
+   for (unsigned int i=0; i< count; i++)
+   {
+      symbol* s = &(symtab[i]);
+      char* name="(null)";
+      if (s->name.ptr.zeros == 0)
+      {
+         name = stringtab + s->name.ptr.index;
+         //printf("Looking up index %i in string table\n", s->name.ptr.index);
+      }
+      else
+      {
+         memcpy(nametmp, s->name.str, 8);
+         nametmp[8] = 0;
+         name = nametmp;
+      }
+      aux = s->auxsymbols;
+      while (aux)
+      {
+         // decode as aux
+         i++;
+         if (s->class == SYM_CLASS_FILE)
+         {
+            // COFF symbols of type file should have the name ".file"
+            if (strcmp(name, ".file"))
+               printf("Got a symbol of type file without name .file! (named %s)\n", name);
+            // now get its real name
+            memcpy(nametmp, (char*)(&symtab[i]), 18);
+            nametmp[18] = 0;
+            name = nametmp;
+         }
+            
+         //AUX tagndx 0 ttlsiz 0x0 lnnos 0 next 0
+         aux--;
+      }
+      printf("[%3u](sec %2i)(fl 0x00)(ty %3x)(scl %3i) (nx %i) 0x%08x %s\n", i, s->section, s->b_type, s->class, s->auxsymbols, s->val, name);
+   }
+}
+
 backend_object* coff_read_file(const char* filename)
 {
    char* buff = malloc(sizeof(coff_header));
@@ -377,9 +440,9 @@ backend_object* coff_read_file(const char* filename)
    }
 
    // read the coff header
-   fread(buff, sizeof(coff_header), 1, f);
-   dump_coff((coff_header*)buff);
-   //int optional_header_size = ((coff_header*)buff)->size_optional_hdr;
+   coff_header ch;
+   fread(&ch, sizeof(coff_header), 1, f);
+   dump_coff(&ch);
 
    unsigned short state; // STATE_ID_
    fread(&state, sizeof(state), 1, f);
@@ -426,8 +489,29 @@ backend_object* coff_read_file(const char* filename)
 
    // read the sections
 
+   // read the symbol table
+   int symtabsize = ch.num_symbols * sizeof(symbol);
+   symbol* symtab = (symbol*)malloc(symtabsize);
+   fseek(f, ch.offset_symtab, SEEK_SET);
+   fread(symtab, symtabsize, 1, f);
+   // can't dump the symbol table until the string table is read
+
+   // read the string table
+   int strtabsize=0;
+   fread(&strtabsize, 4, 1, f);
+   //printf("string table is %i bytes long\n", strtabsize);
+   char* strtab = malloc(strtabsize + sizeof(strtabsize));
+   fread(strtab+sizeof(strtabsize), strtabsize, 1, f);
+   dump_symtab(symtab, ch.num_symbols, strtab);
+
    // fill the symbol table
    //backend_add_symbol(obj, name, val, type, flags);
+
+   // clean up
+   free(strtab);
+   free(symtab);
+   free(buff);
+
    return obj;
 }
 
