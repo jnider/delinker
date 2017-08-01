@@ -350,25 +350,28 @@ void dump_data_dirs(data_dirs* h)
    printf("Import: 0x%x (%u)\n", h->import.address, h->import.size);
 }
 
+static char* coff_symbol_name(symbol* s, char* stringtab)
+{
+   static char nametmp[10];
+   char* name;
+   if (s->name.ptr.zeros == 0)
+      name = stringtab + s->name.ptr.index;
+   else
+   {
+      memcpy(nametmp, s->name.str, 8);
+      nametmp[8] = 0;
+      name = nametmp;
+   }
+   return name;
+}
+
 void dump_symtab(symbol* symtab, unsigned int count, char* stringtab)
 {
-   char nametmp[20];
    int aux=0;
    for (unsigned int i=0; i< count; i++)
    {
       symbol* s = &(symtab[i]);
-      char* name="(null)";
-      if (s->name.ptr.zeros == 0)
-      {
-         name = stringtab + s->name.ptr.index;
-         //printf("Looking up index %i in string table\n", s->name.ptr.index);
-      }
-      else
-      {
-         memcpy(nametmp, s->name.str, 8);
-         nametmp[8] = 0;
-         name = nametmp;
-      }
+      char* name=coff_symbol_name(s, stringtab);
       aux = s->auxsymbols;
       while (aux)
       {
@@ -376,6 +379,7 @@ void dump_symtab(symbol* symtab, unsigned int count, char* stringtab)
          i++;
          if (s->class == SYM_CLASS_FILE)
          {
+            char nametmp[19];
             // COFF symbols of type file should have the name ".file"
             if (strcmp(name, ".file"))
                printf("Got a symbol of type file without name .file! (named %s)\n", name);
@@ -485,7 +489,7 @@ backend_object* coff_read_file(const char* filename)
    free(buff);
    buff = malloc(sizeof(data_dirs));
    fread(buff, sizeof(data_dirs), 1, f);
-   dump_data_dirs((data_dirs*)buff);
+   //dump_data_dirs((data_dirs*)buff);
 
    // read the sections
 
@@ -502,10 +506,21 @@ backend_object* coff_read_file(const char* filename)
    //printf("string table is %i bytes long\n", strtabsize);
    char* strtab = malloc(strtabsize + sizeof(strtabsize));
    fread(strtab+sizeof(strtabsize), strtabsize, 1, f);
-   dump_symtab(symtab, ch.num_symbols, strtab);
+   //dump_symtab(symtab, ch.num_symbols, strtab);
 
-   // fill the symbol table
-   //backend_add_symbol(obj, name, val, type, flags);
+   // fill the generic symbol table
+   for (unsigned int i=0; i< ch.num_symbols; i++)
+   {
+      symbol* s = &(symtab[i]);
+      char* name = coff_symbol_name(s, strtab);
+      if (s->class == SYM_CLASS_FILE && !strcmp(name, ".file"))
+      {
+         char* tmp = strndup((char*)&symtab[++i], 18);
+         backend_add_symbol(obj, tmp, s->val, SYMBOL_TYPE_FILE, 0, NULL);
+         free(tmp);
+      }
+      //backend_add_symbol(obj, name, s->val, type, flags);
+   }
 
    // clean up
    free(strtab);

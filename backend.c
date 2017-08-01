@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "backend.h"
 #include "ll.h"
 
@@ -53,9 +54,38 @@ unsigned int backend_symbol_count(backend_object* obj)
       return 0;
 }
 
-int backend_add_symbol(backend_object* obj, const char* name, unsigned int val, unsigned int type, unsigned int flags)
+int backend_add_symbol(backend_object* obj, const char* name, unsigned int val, backend_symbol_type type, unsigned int flags, backend_section* sec)
 {
    if (!obj->symbol_table)
       obj->symbol_table = ll_init();
+
+   backend_symbol* s = malloc(sizeof(backend_symbol));
+   s->name = strdup(name);
+   s->val = val;
+   s->type = type;
+   s->flags = flags;
+   s->section = sec;
+   printf("Adding %s\n", s->name);
+   ll_add(obj->symbol_table, s);
+   printf("There are %i symbols\n", backend_symbol_count(obj));
+   return 0;
 }
 
+void backend_destructor(backend_object* obj)
+{
+   // destroy the symbol table
+   if (obj->symbol_table)
+   {
+      backend_symbol* s = ll_pop(obj->symbol_table);
+      while (s)
+      {
+         printf("Popped %s\n", s->name);
+         //free(s->name);
+         //free(s);
+         s = ll_pop(obj->symbol_table);
+      }
+   }
+
+   // and finally the object itself
+   free(obj);
+}

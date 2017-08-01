@@ -17,5 +17,7 @@ typedef struct linked_list
 
 linked_list* ll_init(void);
 unsigned int ll_size(const linked_list* ll);
+void ll_add(linked_list* ll, void* val); // adds an item to the tail of the list
+void* ll_pop(linked_list* ll); // pops the item at the head of the list and returns it
 
 #endif // _LL__H
