@@ -8,6 +8,7 @@ backend from scratch. */
 and write out a set of unlinked .o files that can be relinked later.*/
 
 #include <stdio.h>
+#include <string.h>
 #include <getopt.h>
 #include "backend.h"
 
@@ -50,6 +51,7 @@ unlink_file(const char* input_filename, const char* output_target)
 {
    backend_object* obj = backend_read(input_filename);
 
+   // check for symbols, and rebuild if necessary
    if (backend_symbol_count(obj) == 0)
    {
       if (config.reconstruct_symbols == 0)
@@ -64,11 +66,16 @@ unlink_file(const char* input_filename, const char* output_target)
 
    // if the output target is not specified, use the input target
    // get the filenames from the input symbol table
-      /* iterate through all sections of the input file until we find the text section */
+   /* iterate through all sections of the input file until we find the text section */
+   for (int i=0; i < backend_section_count(obj); i++)
+   {
+      backend_section* sec = backend_get_section(obj, i);
+      if (!(strcmp(sec->name, ".text")))
+         printf("Found .text section at index %i\n", i);
+   }
    /* iterate over all symbols in the input table */
       // if the symbol name ends in .c open a corresponding .o for it
       //strcpy(output_filename, symbol->name);
-      //printf("Creating file %s\n", output_filename);
       //int len = strlen(output_filename);
       //if (output_filename[len-2] != '.' || output_filename[len-1] != 'c')
       //   continue;
@@ -80,6 +87,8 @@ unlink_file(const char* input_filename, const char* output_target)
             // add function symbols to the output symbol table
       // set the base address of the symbols to 0
       // write data to file
+
+   //backend_destructor(obj);
 }
 
 int

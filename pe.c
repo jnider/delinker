@@ -151,6 +151,20 @@ typedef struct pe32_windows_header
    unsigned int num_rva;
 } pe32_windows_header;
 
+typedef struct section_header
+{
+   char name[8];
+   unsigned int size_in_mem;
+   unsigned int address;
+   unsigned int size_on_disk;
+   unsigned int dataptr;
+   unsigned int reloc;
+   unsigned int linenums;
+   unsigned short num_reloc;
+   unsigned short num_lines; 
+   unsigned int flags;
+} section_header;
+
 typedef struct data_dir
 {
    unsigned int address;
@@ -174,6 +188,7 @@ typedef struct data_dirs
    data_dir iat;
    data_dir delay;
    data_dir clr;
+   data_dir reserved;
 } data_dirs;
 
 typedef struct symbol
@@ -396,6 +411,14 @@ void dump_symtab(symbol* symtab, unsigned int count, char* stringtab)
    }
 }
 
+static void dump_sections(section_header* secs, unsigned int nsec)
+{
+   for (unsigned int i=0; i < nsec; i++)
+   {
+      printf("Section Name: %s\n", secs[i].name);
+   }
+}
+
 backend_object* coff_read_file(const char* filename)
 {
    char* buff = malloc(sizeof(coff_header));
@@ -491,7 +514,13 @@ backend_object* coff_read_file(const char* filename)
    fread(buff, sizeof(data_dirs), 1, f);
    //dump_data_dirs((data_dirs*)buff);
 
-   // read the sections
+   // read the sections - they are immediately after the optional header
+   printf("There are %u sections\n", ch.num_sections);
+   int sectabsize = sizeof(section_header) * ch.num_sections;
+   section_header* secs = malloc(sectabsize);
+   fread(secs, sectabsize, 1 ,f);
+   dump_sections(secs, ch.num_sections);
+   obj->num_sections = 0;
 
    // read the symbol table
    int symtabsize = ch.num_symbols * sizeof(symbol);

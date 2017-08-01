@@ -36,6 +36,7 @@ backend_object* backend_read(const char* filename)
    return 0;
 }
 
+
 int backend_write(const char* filename, backend_object* obj)
 {
    return 0;
@@ -69,6 +70,16 @@ int backend_add_symbol(backend_object* obj, const char* name, unsigned int val, 
    ll_add(obj->symbol_table, s);
    printf("There are %i symbols\n", backend_symbol_count(obj));
    return 0;
+}
+
+unsigned int backend_section_count(backend_object* obj)
+{
+   return obj->num_sections;
+}
+
+backend_section* backend_get_section(backend_object* obj, unsigned int index)
+{
+   return NULL;
 }
 
 void backend_destructor(backend_object* obj)
