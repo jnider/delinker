@@ -47,3 +47,8 @@ void* ll_pop(linked_list* ll)
    return tmp;
 }
 
+const list_node* ll_iter_start(const linked_list* ll)
+{
+   return ll->head;
+}
+

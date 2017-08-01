@@ -530,7 +530,7 @@ backend_object* coff_read_file(const char* filename)
       fseek(f, secs[i].data_offset, SEEK_SET);
       char* data =  malloc(secs[i].size_on_disk);
       fread(data, secs[i].size_on_disk, 1, f);
-      backend_add_section(obj, secs[i].name, secs[i].size_in_mem, secs[i].address, data, 0);
+      backend_add_section(obj, strndup(secs[i].name, 7), secs[i].size_in_mem, secs[i].address, data, 0);
    }
 
    // read the symbol table

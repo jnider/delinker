@@ -22,8 +22,8 @@ typedef enum backend_symbol_type
 typedef struct backend_section
 {
    char* name;
-   unsigned int start;
-   unsigned int length;
+   unsigned int size;
+   unsigned int address;
    unsigned int flags;
    char* data;
 } backend_section;
@@ -40,9 +40,9 @@ typedef struct backend_symbol
 typedef struct backend_object
 {
    backend_type type;
-   backend_section* sections;
-   unsigned int num_sections;
+   linked_list* section_table;
    linked_list* symbol_table;
+   const list_node* iter_symbol;
 } backend_object;
 
 typedef struct backend_ops
@@ -59,7 +59,11 @@ int backend_write(const char* filename, backend_object* obj);
 void backend_set_type(backend_object* obj, backend_type t);
 unsigned int backend_symbol_count(backend_object* obj);
 int backend_add_symbol(backend_object* obj, const char* name, unsigned int val, backend_symbol_type type, unsigned int flags, backend_section* sec);
+backend_symbol* backend_get_first_symbol(backend_object* obj);
+backend_symbol* backend_get_next_symbol(backend_object* obj);
+
 unsigned int backend_section_count(backend_object* obj);
 int backend_add_section(backend_object* obj, char* name, unsigned int size, unsigned int address, char* data, unsigned int flags);
 backend_section* backend_get_section(backend_object* obj, unsigned int index);
+backend_section* backend_get_section_by_name(backend_object* obj, const char* name);
 void backend_destructor(backend_object* obj);

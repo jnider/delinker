@@ -18,7 +18,8 @@ enum error_codes
    ERR_BAD_FILE,
    ERR_BAD_FORMAT,
    ERR_NO_SYMS,
-   ERR_NO_SYMS_AFTER_RECONSTRUCT
+   ERR_NO_SYMS_AFTER_RECONSTRUCT,
+   ERR_NO_TEXT_SECTION
 };
 
 static struct option options[] =
@@ -43,6 +44,11 @@ usage(void)
 
 static int reconstruct_symbols(backend_object* obj)
 {
+   /* find the text section */
+   backend_section* sec_text = backend_get_section_by_name(obj, ".text");
+   if (!sec_text)
+      return -ERR_NO_TEXT_SECTION;
+
    return 0;
 }
 
@@ -66,28 +72,38 @@ unlink_file(const char* input_filename, const char* output_target)
 
    // if the output target is not specified, use the input target
    // get the filenames from the input symbol table
-   /* iterate through all sections of the input file until we find the text section */
-   for (int i=0; i < backend_section_count(obj); i++)
-   {
-      backend_section* sec = backend_get_section(obj, i);
-      if (!(strcmp(sec->name, ".text")))
-         printf("Found .text section at index %i\n", i);
-   }
    /* iterate over all symbols in the input table */
+   backend_symbol* sym = backend_get_first_symbol(obj);
+   while (sym)
+   {
+      char output_filename[24];
+
+      // start by finding a file symbol
+      if (sym->type != SYMBOL_TYPE_FILE)
+      {
+         sym = backend_get_next_symbol(obj);
+         continue;
+      }
+
       // if the symbol name ends in .c open a corresponding .o for it
-      //strcpy(output_filename, symbol->name);
-      //int len = strlen(output_filename);
-      //if (output_filename[len-2] != '.' || output_filename[len-1] != 'c')
-      //   continue;
+      //printf("symbol name: %s\n", sym->name);
+      strcpy(output_filename, sym->name);
+      int len = strlen(output_filename);
+      if (output_filename[len-2] != '.' || output_filename[len-1] != 'c')
+      {
+         sym = backend_get_next_symbol(obj);
+         continue;
+      }
    
-      //output_filename[len-1] = 'o';
-      //printf("Creating file %s\n", output_filename);
+      output_filename[len-1] = 'o';
+      printf("Creating file %s\n", output_filename);
       // create the sections and copy the symbols
             // if the output section doesn't already exist, create it
             // add function symbols to the output symbol table
       // set the base address of the symbols to 0
       // write data to file
-
+      sym = backend_get_next_symbol(obj);
+   }
    //backend_destructor(obj);
 }
 
@@ -147,6 +163,9 @@ main (int argc, char *argv[])
       break;
    case -ERR_NO_SYMS_AFTER_RECONSTRUCT:
       printf("No symbols found even after attempting to recreate them - maybe the code section is empty?\n");
+      break;
+   case -ERR_NO_TEXT_SECTION:
+      printf("Can't find .text section!\n");
       break;
    }
 

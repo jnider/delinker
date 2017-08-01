@@ -66,27 +66,74 @@ int backend_add_symbol(backend_object* obj, const char* name, unsigned int val, 
    s->type = type;
    s->flags = flags;
    s->section = sec;
-   printf("Adding %s\n", s->name);
+   //printf("Adding %s\n", s->name);
    ll_add(obj->symbol_table, s);
-   printf("There are %i symbols\n", backend_symbol_count(obj));
+   //printf("There are %i symbols\n", backend_symbol_count(obj));
    return 0;
 }
 
+backend_symbol* backend_get_first_symbol(backend_object* obj)
+{
+   obj->iter_symbol = ll_iter_start(obj->symbol_table);
+   return obj->iter_symbol->val;
+}
+
+backend_symbol* backend_get_next_symbol(backend_object* obj)
+{
+   obj->iter_symbol = obj->iter_symbol->next; 
+   if (obj->iter_symbol)
+      return obj->iter_symbol->val;
+   return NULL;
+}
+///////////////////////////////////////////
 unsigned int backend_section_count(backend_object* obj)
 {
-   return obj->num_sections;
+   if (!obj->section_table)
+      return 0;
+   return ll_size(obj->section_table);
 }
 
 int backend_add_section(backend_object* obj, char* name, unsigned int size, unsigned int address, char* data, unsigned int flags)
 {
+   if (!obj->section_table)
+      obj->section_table = ll_init();
+
+   backend_section* s = malloc(sizeof(backend_section));
+   s->name = name;
+   s->size = size;
+   s->address = address;
+   s->flags = flags;
+   s->data = data;
+   //printf("Adding section %s\n", s->name);
+   ll_add(obj->section_table, s);
+   //printf("There are %i sections\n", backend_section_count(obj));
    return 0;
 }
 
 backend_section* backend_get_section(backend_object* obj, unsigned int index)
 {
+   for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
+   {
+      backend_section* sec = iter->val;
+      printf(".. %s\n", sec->name);
+      if (!index)
+         return sec;
+      index--;
+   }
    return NULL;
 }
 
+backend_section* backend_get_section_by_name(backend_object* obj, const char* name)
+{
+   for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
+   {
+      backend_section* sec = iter->val;
+      printf(".. %s\n", sec->name);
+      if (!strcmp(name, sec->name))
+         return sec;
+   }
+   return NULL;
+}
 void backend_destructor(backend_object* obj)
 {
    // destroy the symbol table
