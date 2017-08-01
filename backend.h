@@ -60,5 +60,6 @@ void backend_set_type(backend_object* obj, backend_type t);
 unsigned int backend_symbol_count(backend_object* obj);
 int backend_add_symbol(backend_object* obj, const char* name, unsigned int val, backend_symbol_type type, unsigned int flags, backend_section* sec);
 unsigned int backend_section_count(backend_object* obj);
+int backend_add_section(backend_object* obj, char* name, unsigned int size, unsigned int address, char* data, unsigned int flags);
 backend_section* backend_get_section(backend_object* obj, unsigned int index);
 void backend_destructor(backend_object* obj);

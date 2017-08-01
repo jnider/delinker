@@ -77,6 +77,11 @@ unsigned int backend_section_count(backend_object* obj)
    return obj->num_sections;
 }
 
+int backend_add_section(backend_object* obj, char* name, unsigned int size, unsigned int address, char* data, unsigned int flags)
+{
+   return 0;
+}
+
 backend_section* backend_get_section(backend_object* obj, unsigned int index)
 {
    return NULL;

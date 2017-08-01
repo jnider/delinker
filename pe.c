@@ -157,7 +157,7 @@ typedef struct section_header
    unsigned int size_in_mem;
    unsigned int address;
    unsigned int size_on_disk;
-   unsigned int dataptr;
+   unsigned int data_offset;
    unsigned int reloc;
    unsigned int linenums;
    unsigned short num_reloc;
@@ -416,6 +416,10 @@ static void dump_sections(section_header* secs, unsigned int nsec)
    for (unsigned int i=0; i < nsec; i++)
    {
       printf("Section Name: %s\n", secs[i].name);
+      printf("Size in mem: %u\n", secs[i].size_in_mem);
+      printf("Address: 0x%x\n", secs[i].address);
+      printf("Data ptr: %u\n", secs[i].data_offset); 
+      printf("Flags: 0x%x\n", secs[i].flags);
    }
 }
 
@@ -515,12 +519,19 @@ backend_object* coff_read_file(const char* filename)
    //dump_data_dirs((data_dirs*)buff);
 
    // read the sections - they are immediately after the optional header
-   printf("There are %u sections\n", ch.num_sections);
+   //printf("There are %u sections\n", ch.num_sections);
    int sectabsize = sizeof(section_header) * ch.num_sections;
    section_header* secs = malloc(sectabsize);
    fread(secs, sectabsize, 1 ,f);
-   dump_sections(secs, ch.num_sections);
-   obj->num_sections = 0;
+   //dump_sections(secs, ch.num_sections);
+   for (unsigned int i=0; i < ch.num_sections; i++)
+   {
+      // load the data
+      fseek(f, secs[i].data_offset, SEEK_SET);
+      char* data =  malloc(secs[i].size_on_disk);
+      fread(data, secs[i].size_on_disk, 1, f);
+      backend_add_section(obj, secs[i].name, secs[i].size_in_mem, secs[i].address, data, 0);
+   }
 
    // read the symbol table
    int symtabsize = ch.num_symbols * sizeof(symbol);
