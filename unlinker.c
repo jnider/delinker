@@ -97,11 +97,14 @@ unlink_file(const char* input_filename, const char* output_target)
    
       output_filename[len-1] = 'o';
       printf("Creating file %s\n", output_filename);
+      backend_object* oo = backend_create();
+      backend_set_type(oo, OBJECT_TYPE_ELF32);
       // create the sections and copy the symbols
             // if the output section doesn't already exist, create it
             // add function symbols to the output symbol table
       // set the base address of the symbols to 0
       // write data to file
+      backend_write(oo, output_filename);
       sym = backend_get_next_symbol(obj);
    }
    //backend_destructor(obj);

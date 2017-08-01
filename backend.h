@@ -10,7 +10,8 @@ typedef enum backend_type
    OBJECT_TYPE_NONE,
    OBJECT_TYPE_PE32,
    OBJECT_TYPE_PE_ROM,
-   OBJECT_TYPE_PE32PLUS
+   OBJECT_TYPE_PE32PLUS,
+   OBJECT_TYPE_ELF32
 } backend_type;
 
 typedef enum backend_symbol_type
@@ -54,8 +55,10 @@ typedef struct backend_ops
 int backend_init(void);
 
 void backend_register();
+
+backend_object* backend_create(void);
 backend_object* backend_read(const char* filename);
-int backend_write(const char* filename, backend_object* obj);
+int backend_write(backend_object* obj, const char* filename);
 void backend_set_type(backend_object* obj, backend_type t);
 unsigned int backend_symbol_count(backend_object* obj);
 int backend_add_symbol(backend_object* obj, const char* name, unsigned int val, backend_symbol_type type, unsigned int flags, backend_section* sec);

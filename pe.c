@@ -79,7 +79,12 @@ optional header
 #define COFF_FLAG_BYTES_REVERSED_HI    0x8000 //Big endian
 #define COFF_FLAG_SHIFT_BYTES_REVERSED_HI 15
 
+// the symbol classes
+#define SYM_CLASS_EXTERNAL 2
+#define SYM_CLASS_STATIC 3 // The offset of the symbol within the section. If the Value field is zero, then the symbol represents a section name.
+#define SYM_CLASS_FUNCTION 101
 #define SYM_CLASS_FILE 103
+#define SYM_CLASS_SECTION 104
 
 typedef enum subsystem
 {
@@ -204,8 +209,7 @@ typedef struct symbol
    } name;
    unsigned int val;
    short section; // index, 0=external, -1=abs, -2=debugging (file)
-   unsigned char b_type; // base type
-   unsigned char c_type; // complex type
+   unsigned short type; // LSB: base type MSB: complex type
    unsigned char class;
    unsigned char auxsymbols;
 } symbol;
@@ -219,7 +223,7 @@ struct machine_name
 static const struct machine_name machine_lookup[] = 
 {
    { IMAGE_FILE_MACHINE_UNKNOWN,    "Unknown machine" },
-   { IMAGE_FILE_MACHINE_AM33,       "Matsushita AM33" },
+
    { IMAGE_FILE_MACHINE_AMD64,      "x64" },
    { IMAGE_FILE_MACHINE_ARM,        "ARM little endian" },
    { IMAGE_FILE_MACHINE_ARM64,      "ARM64 little endian" },
@@ -407,7 +411,7 @@ void dump_symtab(symbol* symtab, unsigned int count, char* stringtab)
          //AUX tagndx 0 ttlsiz 0x0 lnnos 0 next 0
          aux--;
       }
-      printf("[%3u](sec %2i)(fl 0x00)(ty %3x)(scl %3i) (nx %i) 0x%08x %s\n", i, s->section, s->b_type, s->class, s->auxsymbols, s->val, name);
+      printf("[%3u](sec %2i)(fl 0x00)(ty %3x)(scl %3i) (nx %i) 0x%08x %s\n", i, s->section, s->type, s->class, s->auxsymbols, s->val, name);
    }
 }
 
@@ -463,7 +467,8 @@ backend_object* coff_read_file(const char* filename)
    }
    
    printf("found PE magic number\n");
-   backend_object* obj = malloc(sizeof(backend_object));
+   
+   backend_object* obj = backend_create();
    if (!obj)
    {
       free(buff);
@@ -553,13 +558,33 @@ backend_object* coff_read_file(const char* filename)
    {
       symbol* s = &(symtab[i]);
       char* name = coff_symbol_name(s, strtab);
-      if (s->class == SYM_CLASS_FILE && !strcmp(name, ".file"))
+      switch (s->class)
       {
-         char* tmp = strndup((char*)&symtab[++i], 18);
-         backend_add_symbol(obj, tmp, s->val, SYMBOL_TYPE_FILE, 0, NULL);
-         free(tmp);
+      case SYM_CLASS_FILE:
+         if (strcmp(name, ".file"))
+            printf("Warning: 'file' symbol is not named '.file'!\n");
+         backend_add_symbol(obj, strndup((char*)&symtab[++i], 18), s->val, SYMBOL_TYPE_FILE, 0, NULL);
+         break;
+
+      case SYM_CLASS_SECTION:
+      case SYM_CLASS_STATIC:
+         // backend_add_symbol(obj, name, s->val, type, flags);
+         break;
+
+      case SYM_CLASS_FUNCTION:
+         break;
+
+      case SYM_CLASS_EXTERNAL:
+         if (s->type != 0x20)
+            break;
+         if (s->section <= 0)
+         {
+            printf("Warning: external symbol %s does not have a valid section number\n", name);
+            break;
+         }
+         backend_add_symbol(obj, strndup(name, 8), s->val, SYMBOL_TYPE_FILE, 0, NULL); //TODO look up section
+         break;
       }
-      //backend_add_symbol(obj, name, s->val, type, flags);
    }
 
    // clean up

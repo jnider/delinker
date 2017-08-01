@@ -23,6 +23,18 @@ void backend_register(backend_ops* be)
    printf("num backends %i\n", num_backends);
 }
 
+backend_object* backend_create(void)
+{
+   backend_object* obj = malloc(sizeof(backend_object));
+   if (obj)
+   {
+      obj->type = OBJECT_TYPE_NONE;
+      obj->section_table = NULL;
+      obj->symbol_table = NULL;
+   }
+   return obj;
+}
+
 backend_object* backend_read(const char* filename)
 {
    printf("backend_read\n");
@@ -37,8 +49,11 @@ backend_object* backend_read(const char* filename)
 }
 
 
-int backend_write(const char* filename, backend_object* obj)
+int backend_write(backend_object* obj, const char* filename)
 {
+   FILE* f = fopen(filename, "wb");
+   if (f)
+      fclose(f);
    return 0;
 }
 
