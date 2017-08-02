@@ -427,6 +427,17 @@ static void dump_sections(section_header* secs, unsigned int nsec)
    }
 }
 
+/* identifies the file format we can write */
+backend_type pe32_format(void)
+{
+   return OBJECT_TYPE_PE32;
+}
+
+backend_type pe32plus_format(void)
+{
+   return OBJECT_TYPE_PE32PLUS;
+}
+
 backend_object* coff_read_file(const char* filename)
 {
    char* buff = malloc(sizeof(coff_header));
@@ -595,12 +606,20 @@ backend_object* coff_read_file(const char* filename)
    return obj;
 }
 
-backend_ops coff =
+backend_ops pe32_backend =
 {
+   .format = pe32_format,
+   .read = coff_read_file
+};
+
+backend_ops pe32plus_backend =
+{
+   .format = pe32plus_format,
    .read = coff_read_file
 };
 
 void pe_init(void)
 {
-   backend_register(&coff);
+   backend_register(&pe32_backend);
+   //backend_register(&pe32plus_backend);
 }
