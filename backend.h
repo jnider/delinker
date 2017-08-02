@@ -48,7 +48,9 @@ typedef struct backend_object
 
 typedef struct backend_ops
 {
+   backend_type (*format)(void);
    backend_object* (*read)(const char* filename);
+   int (*write)(backend_object* obj, const char* filename);
 } backend_ops;
 
 /* initialize the library for use - don't call any functions before this one */
