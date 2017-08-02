@@ -18,8 +18,19 @@ int backend_init(void)
 
 void backend_register(backend_ops* be)
 {
-   if (num_backends < MAX_BACKENDS)
-      backend[num_backends++] = be;
+   if (num_backends >= MAX_BACKENDS)
+   {
+      printf("Can't accept any more backends - sorry, we're full! (MAX_BACKENDS=%i)\n", MAX_BACKENDS);
+      return;
+   }
+
+   if (!be->format)
+   {
+      printf("You must implement the format() function\n");
+      return;
+   }
+
+   backend[num_backends++] = be;
    printf("num backends %i\n", num_backends);
 }
 
@@ -38,7 +49,7 @@ backend_object* backend_create(void)
 backend_object* backend_read(const char* filename)
 {
    printf("backend_read\n");
-   // run through all backends until we find one that returns an object
+   // run through all backends until we find one that recognizes the format and returns an object
    for (int i=0; i < num_backends; i++)
    {
       backend_object* obj = backend[i]->read(filename);
@@ -48,13 +59,18 @@ backend_object* backend_read(const char* filename)
    return 0;
 }
 
-
 int backend_write(backend_object* obj, const char* filename)
 {
-   FILE* f = fopen(filename, "wb");
-   if (f)
-      fclose(f);
-   return 0;
+   // run through all backends until we find one that matches the output format
+   for (int i=0; i < num_backends; i++)
+   {
+      if (backend[i]->format() == obj->type)
+      {
+         backend[i]->write(obj, filename);
+         return 0;
+      }
+   }
+   return -1;
 }
 
 void backend_set_type(backend_object* obj, backend_type t)
