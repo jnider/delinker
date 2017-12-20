@@ -66,6 +66,9 @@ int backend_write(backend_object* obj, const char* filename)
    {
       if (backend[i]->format() == obj->type)
       {
+         if (!backend[i]->write)
+            return -2;
+
          backend[i]->write(obj, filename);
          return 0;
       }
@@ -76,6 +79,11 @@ int backend_write(backend_object* obj, const char* filename)
 void backend_set_type(backend_object* obj, backend_type t)
 {
    obj->type = t;
+}
+
+void backend_set_address(backend_object* obj, unsigned int addr)
+{
+	obj->address = addr;
 }
 
 unsigned int backend_symbol_count(backend_object* obj)
@@ -105,6 +113,8 @@ int backend_add_symbol(backend_object* obj, const char* name, unsigned int val, 
 
 backend_symbol* backend_get_first_symbol(backend_object* obj)
 {
+   if (!obj->symbol_table)
+      return NULL;
    obj->iter_symbol = ll_iter_start(obj->symbol_table);
    return obj->iter_symbol->val;
 }
@@ -120,51 +130,75 @@ backend_symbol* backend_get_next_symbol(backend_object* obj)
 unsigned int backend_section_count(backend_object* obj)
 {
    if (!obj->section_table)
+   {
+      printf("No generic section table\n");
       return 0;
+   }
    return ll_size(obj->section_table);
 }
 
-int backend_add_section(backend_object* obj, char* name, unsigned int size, unsigned int address, char* data, unsigned int flags)
+backend_section* backend_add_section(backend_object* obj, unsigned int index, char* name, unsigned int size, unsigned int address, char* data, unsigned int alignment, unsigned int flags)
 {
    if (!obj->section_table)
       obj->section_table = ll_init();
 
    backend_section* s = malloc(sizeof(backend_section));
+	if (!s)
+		return NULL;
+
    s->name = name;
    s->size = size;
    s->address = address;
    s->flags = flags;
    s->data = data;
-   //printf("Adding section %s\n", s->name);
+   printf("Adding section %s size:%i address:0x%x flags:0x%x\n", s->name, s->size, s->address, s->flags);
    ll_add(obj->section_table, s);
    //printf("There are %i sections\n", backend_section_count(obj));
-   return 0;
+   return s;
 }
 
-backend_section* backend_get_section(backend_object* obj, unsigned int index)
+backend_section* backend_get_section_by_index(backend_object* obj, unsigned int index)
 {
    for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
    {
       backend_section* sec = iter->val;
-      printf(".. %s\n", sec->name);
-      if (!index)
+      if (sec->index == index)
          return sec;
-      index--;
    }
    return NULL;
 }
 
 backend_section* backend_get_section_by_name(backend_object* obj, const char* name)
 {
+	if (!obj || !name || !obj->section_table)
+		return NULL;
+
    for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
    {
       backend_section* sec = iter->val;
-      printf(".. %s\n", sec->name);
+      //printf(".. %s\n", sec->name);
       if (!strcmp(name, sec->name))
          return sec;
    }
    return NULL;
 }
+
+backend_section* backend_get_first_section(backend_object* obj)
+{
+   if (!obj->section_table)
+      return NULL;
+   obj->iter_section = ll_iter_start(obj->section_table);
+   return obj->iter_section->val;
+}
+
+backend_section* backend_get_next_section(backend_object* obj)
+{
+   obj->iter_section = obj->iter_section->next; 
+   if (obj->iter_section)
+      return obj->iter_section->val;
+   return NULL;
+}
+
 void backend_destructor(backend_object* obj)
 {
    // destroy the symbol table

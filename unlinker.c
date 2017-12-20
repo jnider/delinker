@@ -10,6 +10,7 @@ and write out a set of unlinked .o files that can be relinked later.*/
 #include <stdio.h>
 #include <string.h>
 #include <getopt.h>
+#include <udis86.h>
 #include "backend.h"
 
 enum error_codes
@@ -44,10 +45,59 @@ usage(void)
 
 static int reconstruct_symbols(backend_object* obj)
 {
+	char name[10];
+
+	printf("reconstructing symbols from text section\n");
    /* find the text section */
    backend_section* sec_text = backend_get_section_by_name(obj, ".text");
    if (!sec_text)
       return -ERR_NO_TEXT_SECTION;
+
+	// add a fake symbol for the filename
+	backend_add_symbol(obj, "source.c", 0, SYMBOL_TYPE_FILE, 0, sec_text);
+
+	// decode (disassemble) the executable section, and assume that any instruction following a 'ret'
+   // is the beginning of a new function. Create a symbol entry at that address, and add it to the list.
+	// We must also handle 'jmp' instructions in the middle of nowhere (jump tables?) in the same way.
+	int sawret = 0;
+	ud_t ud_obj;
+
+	ud_init(&ud_obj);
+	ud_set_mode(&ud_obj, 32); // decode in 32 bit mode
+	ud_set_input_buffer(&ud_obj, sec_text->data, sec_text->size);
+	//ud_set_syntax(&ud_obj, NULL); // #5 no disassemble!
+	while (ud_disassemble(&ud_obj))
+	{
+		enum ud_mnemonic_code mnem;
+		mnem = ud_insn_mnemonic(&ud_obj);
+		unsigned int addr = ud_insn_off(&ud_obj);
+		//printf("* %s\n", ud_insn_hex(&ud_obj));
+
+		if (mnem == UD_Iret)
+		{
+			sawret = 1;
+			continue;
+		}
+
+		if (mnem == UD_Ijmp)
+		{
+			if (sawret)
+			{
+				sprintf(name, "fn%06X", addr);
+				backend_add_symbol(obj, name, addr, SYMBOL_TYPE_FUNCTION, 0, sec_text);
+			}
+			sawret = 1;
+			continue;
+		}
+
+		// skip 'null' instructions until we hit the next 'valid' instruction
+		if (sawret && mnem != UD_Iint3)
+		{
+			sawret = 0;
+			sprintf(name, "fn%06X", addr);
+			backend_add_symbol(obj, name, addr, SYMBOL_TYPE_FUNCTION, 0, sec_text);
+		}
+	}
 
    return 0;
 }
@@ -73,41 +123,87 @@ unlink_file(const char* input_filename, const char* output_target)
    // if the output target is not specified, use the input target
    // get the filenames from the input symbol table
    /* iterate over all symbols in the input table */
+	backend_section* sec_text = NULL;
+   backend_object* oo = NULL;
    backend_symbol* sym = backend_get_first_symbol(obj);
+   char output_filename[24];
    while (sym)
    {
-      char output_filename[24];
-
       // start by finding a file symbol
-      if (sym->type != SYMBOL_TYPE_FILE)
+      int len;
+      switch (sym->type)
       {
-         sym = backend_get_next_symbol(obj);
-         continue;
-      }
+      case SYMBOL_TYPE_FILE:
+         // if the symbol name ends in .c open a corresponding .o for it
+         //printf("symbol name: %s\n", sym->name);
+         len = strlen(sym->name);
+         if (sym->name[len-2] != '.' || sym->name[len-1] != 'c')
+         {
+            sym = backend_get_next_symbol(obj);
+            continue;
+         }
 
-      // if the symbol name ends in .c open a corresponding .o for it
-      //printf("symbol name: %s\n", sym->name);
-      strcpy(output_filename, sym->name);
-      int len = strlen(output_filename);
-      if (output_filename[len-2] != '.' || output_filename[len-1] != 'c')
-      {
-         sym = backend_get_next_symbol(obj);
-         continue;
+         // write data to file
+         if (oo)
+         {
+            printf("Writing file %s\n", output_filename);
+            backend_write(oo, output_filename);
+            backend_destructor(oo);
+            oo = NULL;
+         }
+
+         // start a new one
+         strcpy(output_filename, sym->name);
+         output_filename[len-1] = 'o';
+         oo = backend_create();
+         if (!oo)
+            return -10; 
+         printf("=== Opening file %s\n", output_filename);
+         backend_set_type(oo, OBJECT_TYPE_PE32);
+         break;
+
+      case SYMBOL_TYPE_SECTION:
+         // create the sections and copy the symbols
+         printf("Got section %s\n", sym->name);
+         backend_section* bs = backend_get_section_by_name(obj, sym->name);
+         printf("Found matching input section\n");
+         backend_add_section(oo, 0, strdup(bs->name), 0, bs->address, NULL, bs->alignment, bs->flags);
+         break;
+
+      case SYMBOL_TYPE_FUNCTION:
+			if (!sec_text)
+			{
+				printf("no text section found - searching\n");
+         	sec_text = backend_get_section_by_name(oo, ".text");
+				if (!sec_text)
+				{
+					printf("no text section found - adding\n");
+         		sec_text = backend_add_section(oo, 0, strdup(".text"), 0, 0, NULL, 2, SECTION_FLAG_CODE);
+					if (!sec_text)
+					{
+						printf("no text section found - major disaster\n");
+						continue;
+					}
+				}
+			}
+         //printf("Got function %s\n", sym->name);
+         // set the base address of all instructions referencing memory to 0
+         // add function symbols to the output symbol table
+			backend_add_symbol(oo, sym->name, sym->val, SYMBOL_TYPE_FUNCTION, 0, sec_text);
+         break;
       }
    
-      output_filename[len-1] = 'o';
-      printf("Creating file %s\n", output_filename);
-      backend_object* oo = backend_create();
-      backend_set_type(oo, OBJECT_TYPE_ELF32);
-      // create the sections and copy the symbols
-            // if the output section doesn't already exist, create it
-            // add function symbols to the output symbol table
-      // set the base address of the symbols to 0
-      // write data to file
-      backend_write(oo, output_filename);
+
       sym = backend_get_next_symbol(obj);
    }
-   //backend_destructor(obj);
+   // write data to file
+   if (oo)
+   {
+   	printf("Writing file %s\n", output_filename);
+      backend_write(oo, output_filename);
+      //backend_destructor(oo);
+      oo = NULL;
+   }
 }
 
 int
