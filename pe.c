@@ -47,37 +47,21 @@ optional header
 #define IMAGE_FILE_MACHINE_WCEMIPSV2   0x169 //MIPS little-endian WCE v2
 
 // Flags
-#define COFF_FLAG_RELOCS_STRIPPED      0x0001 //Does not contain base relocations and must therefore be loaded at its preferred base address
-#define COFF_FLAG_SHIFT_RELOCS_STRIPPED 0
-#define COFF_FLAG_EXECUTABLE_IMAGE     0x0002 //The image file is valid and can be run
-#define COFF_FLAG_SHIFT_EXECUTABLE_IMAGE 1
-#define COFF_FLAG_LINE_NUMS_STRIPPED   0x0004 //COFF line numbers have been removed
-#define COFF_FLAG_SHIFT_LINE_NUMS_STRIPPED 2
-#define COFF_FLAG_LOCAL_SYMS_STRIPPED  0x0008 //COFF symbol table entries for local symbols have been removed
-#define COFF_FLAG_SHIFT_LOCAL_SYMS_STRIPPED 3
-#define COFF_FLAG_AGGRESSIVE_WS_TRIM   0x0010 //Obsolete. Aggressively trim working set
-#define COFF_FLAG_SHIFT_AGGRESSIVE_WS_TRIM 4
-#define COFF_FLAG_LARGE_ADDRESS_AWARE  0x0020 //Application can handle > 2-GB addresses.
-#define COFF_FLAG_SHIFT_LARGE_ADDRESS 5
-                                    //0x0040 This flag is reserved for future use.
-#define COFF_FLAG_BYTES_REVERSED_LO    0x0080 //Little endian
-#define COFF_FLAG_SHIFT_BYTES_REVERSED_LO 7
-#define COFF_FLAG_32BIT_MACHINE        0x0100 //Machine is based on a 32-bit-word architecture.
-#define COFF_FLAG_SHIFT_32BIT_MACHINE 8
-#define COFF_FLAG_DEBUG_STRIPPED       0x0200 //Debugging information is removed from the image file.
-#define COFF_FLAG_SHIFT_DEBUG_STRIPPED 9
-#define COFF_FLAG_REMOVABLE_RUN_FROM_SWAP 0x0400 //If the image is on removable media, fully load it and copy it to the swap file.
-#define COFF_FLAG_SHIFT_REMOVABLE_RUN_FROM_SWAP 10
-#define COFF_FLAG_NET_RUN_FROM_SWAP    0x0800 //If the image is on network media, fully load it and copy it to the swap file.
-#define COFF_FLAG_SHIFT_NET_RUN_FROM_SWAP 11
-#define COFF_FLAG_SYSTEM               0x1000 //The image file is a system file, not a user program.
-#define COFF_FLAG_SHIFT_SYSTEM 12
-#define COFF_FLAG_DLL                  0x2000 //The image file is a dynamic-link library (DLL)
-#define COFF_FLAG_SHIFT_DLL 13
-#define COFF_FLAG_UP_SYSTEM_ONLY       0x4000 //The file should be run only on a uniprocessor machine.
-#define COFF_FLAG_SHIFT_UP_SYSTEM_ONLY 14
-#define COFF_FLAG_BYTES_REVERSED_HI    0x8000 //Big endian
-#define COFF_FLAG_SHIFT_BYTES_REVERSED_HI 15
+#define COFF_FLAG_RELOCS_STRIPPED         0  //Does not contain base relocations and must therefore be loaded at its preferred base address
+#define COFF_FLAG_EXECUTABLE_IMAGE        1  //The image file is valid and can be run
+#define COFF_FLAG_LINE_NUMS_STRIPPED      2  //COFF line numbers have been removed
+#define COFF_FLAG_LOCAL_SYMS_STRIPPED     3  //COFF symbol table entries for local symbols have been removed
+#define COFF_FLAG_AGGRESSIVE_WS_TRIM      4  //Obsolete. Aggressively trim working set
+#define COFF_FLAG_LARGE_ADDRESS           5  //Application can handle > 2-GB addresses.
+#define COFF_FLAG_BYTES_REVERSED_LO       7  //Little endian
+#define COFF_FLAG_32BIT_MACHINE           8  //Machine is based on a 32-bit-word architecture.
+#define COFF_FLAG_DEBUG_STRIPPED          9  //Debugging information is removed from the image file.
+#define COFF_FLAG_REMOVABLE_RUN_FROM_SWAP 10 //If the image is on removable media, fully load it and copy it to the swap file.
+#define COFF_FLAG_NET_RUN_FROM_SWAP       11 //If the image is on network media, fully load it and copy it to the swap file.
+#define COFF_FLAG_SYSTEM                  12 //The image file is a system file, not a user program.
+#define COFF_FLAG_DLL                     13 //The image file is a dynamic-link library (DLL)
+#define COFF_FLAG_UP_SYSTEM_ONLY          14 //The file should be run only on a uniprocessor machine.
+#define COFF_FLAG_BYTES_REVERSED_HI       15 //Big endian
 
 // the symbol classes
 #define SYM_CLASS_EXTERNAL 2
@@ -85,6 +69,24 @@ optional header
 #define SYM_CLASS_FUNCTION 101
 #define SYM_CLASS_FILE 103
 #define SYM_CLASS_SECTION 104
+
+// section flags
+#define SCN_CNT_CODE                      5 // The section contains executable code
+#define SCN_CNT_INIT_DATA                 6 // The section contains initialized data
+#define SCN_CNT_UNINIT_DATA               7 // The section contains uninitialized data
+#define SCN_LNK_INFO                      9 // The section contains comments or other information.
+#define SCN_LNK_REMOVE                    11 // The section will not become part of the image. This is valid only for object files.
+#define SCN_LNK_COMDAT                    12 // The section contains COMDAT data. This is valid only for object files.
+#define SCN_ALIGN                         20 
+#define SCN_ALIGN_MASK                    0x00F00000
+#define SCN_LNK_NRELOC_OVFL               24 // The section contains extended relocations
+#define SCN_MEM_DISCARDABLE               25 // The section can be discarded as needed
+#define SCN_MEM_NOT_CACHED                26 // The section cannot be cached
+#define SCN_MEM_NOT_PAGED                 27 // The section is not pageable
+#define SCN_MEM_SHARED                    28 // The section can be shared in memory
+#define SCN_MEM_EXECUTE                   29 // The section can be executed as code
+#define SCN_MEM_READ                      30 // The section can be read
+#define SCN_MEM_WRITE                     31 // The section can be written to
 
 typedef enum subsystem
 {
@@ -116,7 +118,7 @@ typedef struct coff_header
    unsigned int  offset_symtab; // offset to symbol table
    unsigned int  num_symbols;   // number of entries in symbol table
    unsigned short size_optional_hdr;
-   unsigned short flags;         // see COFF_FLAGS_
+   unsigned short flags;         // see COFF_FLAG_
 } coff_header;
 
 typedef struct optional_header
@@ -167,7 +169,7 @@ typedef struct section_header
    unsigned int linenums;
    unsigned short num_reloc;
    unsigned short num_lines; 
-   unsigned int flags;
+   unsigned int flags; // see SCN_
 } section_header;
 
 typedef struct data_dir
@@ -288,6 +290,30 @@ static const char* subsystem_lookup[] =
    "XBOX",
    "unknown",
    "Windows boot application"
+};
+
+static const char* section_flags_lookup[] = 
+{
+   "",
+   "",
+   "",
+   "",
+   "",
+   "executable code",
+   "initialized data",
+   "uninitialized data",
+   "comments or other information",
+   "will not become part of the image",
+   "COMDAT data",
+   0,0,0,0,0,0,0,0,0,0,0,0,0,
+   "extended relocations",
+   "can be discarded as needed",
+   "cannot be cached",
+   "is not pageable",
+   "can be shared in memory",
+   "can be executed as code",
+   "can be read",
+   "can be written to"
 };
 
 const char* lookup_machine(unsigned short machine)
@@ -419,11 +445,19 @@ static void dump_sections(section_header* secs, unsigned int nsec)
 {
    for (unsigned int i=0; i < nsec; i++)
    {
+      printf("Index: %i\n", i+1);
       printf("Section Name: %s\n", secs[i].name);
       printf("Size in mem: %u\n", secs[i].size_in_mem);
       printf("Address: 0x%x\n", secs[i].address);
       printf("Data ptr: %u\n", secs[i].data_offset); 
       printf("Flags: 0x%x\n", secs[i].flags);
+      for (int f=0; f < 19; f++)
+         if (secs[i].flags & (1<<f))
+            printf("   - %s\n", section_flags_lookup[f]);
+      for (int f=24; f < 31; f++)
+         if (secs[i].flags & (1<<f))
+            printf("   - %s\n", section_flags_lookup[f]);
+      printf("Alignment: %i\n", (secs[i].flags & SCN_ALIGN_MASK)>>SCN_ALIGN);
    }
 }
 
@@ -438,7 +472,7 @@ backend_type pe32plus_format(void)
    return OBJECT_TYPE_PE32PLUS;
 }
 
-backend_object* coff_read_file(const char* filename)
+static backend_object* pe_read_file(const char* filename)
 {
    char* buff = malloc(sizeof(coff_header));
 
@@ -489,7 +523,7 @@ backend_object* coff_read_file(const char* filename)
    // read the coff header
    coff_header ch;
    fread(&ch, sizeof(coff_header), 1, f);
-   dump_coff(&ch);
+   //dump_coff(&ch);
 
    unsigned short state; // STATE_ID_
    fread(&state, sizeof(state), 1, f);
@@ -503,13 +537,13 @@ backend_object* coff_read_file(const char* filename)
       // read the optional header
       buff = malloc(sizeof(optional_header));
       fread(buff, sizeof(optional_header), 1, f);
-      dump_optional((optional_header*)buff, state);
+      //dump_optional((optional_header*)buff, state);
 
       // read the windows-specific header
       free(buff);
       buff = malloc(sizeof(pe32_windows_header));
       fread(buff, sizeof(pe32_windows_header), 1, f);
-      dump_pe32_windows((pe32_windows_header*)buff);
+      //dump_pe32_windows((pe32_windows_header*)buff);
       break;
 
    case STATE_ID_ROM:
@@ -528,6 +562,9 @@ backend_object* coff_read_file(const char* filename)
       printf("Unknown\n");
    }
 
+	// add generic object information
+	backend_set_address(obj, ((pe32_windows_header*)buff)->base);
+
    // read the data directories
    free(buff);
    buff = malloc(sizeof(data_dirs));
@@ -535,7 +572,7 @@ backend_object* coff_read_file(const char* filename)
    //dump_data_dirs((data_dirs*)buff);
 
    // read the sections - they are immediately after the optional header
-   //printf("There are %u sections\n", ch.num_sections);
+   printf("There are %u sections\n", ch.num_sections);
    int sectabsize = sizeof(section_header) * ch.num_sections;
    section_header* secs = malloc(sectabsize);
    fread(secs, sectabsize, 1 ,f);
@@ -546,7 +583,21 @@ backend_object* coff_read_file(const char* filename)
       fseek(f, secs[i].data_offset, SEEK_SET);
       char* data =  malloc(secs[i].size_on_disk);
       fread(data, secs[i].size_on_disk, 1, f);
-      backend_add_section(obj, strndup(secs[i].name, 7), secs[i].size_in_mem, secs[i].address, data, 0);
+
+      // convert the flags
+      unsigned int flags=0;
+      if (secs[i].flags & SCN_CNT_CODE)
+         flags |= SECTION_FLAG_CODE;
+      if (secs[i].flags & SCN_CNT_INIT_DATA)
+         flags |= SECTION_FLAG_INIT_DATA;
+      if (secs[i].flags & SCN_CNT_UNINIT_DATA)
+         flags |= SECTION_FLAG_UNINIT_DATA;
+      if (secs[i].flags & SCN_LNK_INFO)
+         flags |= SECTION_FLAG_COMMENTS;
+      if (secs[i].flags & SCN_LNK_REMOVE)
+         flags |= SECTION_FLAG_DISCARDABLE;
+
+      backend_add_section(obj, i+1, strndup(secs[i].name, 8), secs[i].size_in_mem, secs[i].address, data, (secs[i].flags & SCN_ALIGN_MASK) >> SCN_ALIGN, flags);
    }
 
    // read the symbol table
@@ -569,32 +620,50 @@ backend_object* coff_read_file(const char* filename)
    {
       symbol* s = &(symtab[i]);
       char* name = coff_symbol_name(s, strtab);
-      switch (s->class)
+
+      // is this a function?
+      if (s->type == 0x20)
       {
-      case SYM_CLASS_FILE:
-         if (strcmp(name, ".file"))
-            printf("Warning: 'file' symbol is not named '.file'!\n");
-         backend_add_symbol(obj, strndup((char*)&symtab[++i], 18), s->val, SYMBOL_TYPE_FILE, 0, NULL);
-         break;
-
-      case SYM_CLASS_SECTION:
-      case SYM_CLASS_STATIC:
-         // backend_add_symbol(obj, name, s->val, type, flags);
-         break;
-
-      case SYM_CLASS_FUNCTION:
-         break;
-
-      case SYM_CLASS_EXTERNAL:
-         if (s->type != 0x20)
-            break;
-         if (s->section <= 0)
+         if (s->class == SYM_CLASS_EXTERNAL && s->section <= 0)
          {
             printf("Warning: external symbol %s does not have a valid section number\n", name);
             break;
          }
-         backend_add_symbol(obj, strndup(name, 8), s->val, SYMBOL_TYPE_FILE, 0, NULL); //TODO look up section
-         break;
+         if (s->auxsymbols == 1)
+            i++; // the aux doesn't seem to be in use by MSFT, so I'm not going to bother reading it now
+         backend_add_symbol(obj, strndup(name, 8), s->val, SYMBOL_TYPE_FUNCTION, 0, backend_get_section_by_index(obj, s->section));
+      }
+      else
+      {
+         switch (s->class)
+         {
+         case SYM_CLASS_FILE:
+            if (strcmp(name, ".file"))
+               printf("Warning: 'file' symbol is not named '.file'!\n");
+            backend_add_symbol(obj, strndup((char*)&symtab[++i], 18), s->val, SYMBOL_TYPE_FILE, 0, NULL);
+            break;
+
+         case SYM_CLASS_SECTION:
+            break;
+
+         case SYM_CLASS_STATIC:
+            if (s->auxsymbols == 1)
+            {
+               // read the number of relocations
+               //symbol_aux_sec* a = &(symtab[++i]);
+               i++; // remove this when uncommenting previous line
+            }
+            backend_add_symbol(obj, strndup(name, 8), s->val, SYMBOL_TYPE_SECTION, 0, NULL);
+            // here we probably need to update the section object as well
+            break;
+
+         case SYM_CLASS_FUNCTION:
+            // these are the .bf (begin function) and .ef (end function) symbols - ignore them for now
+            break;
+
+         case SYM_CLASS_EXTERNAL:
+            break;
+         }
       }
    }
 
@@ -606,16 +675,293 @@ backend_object* coff_read_file(const char* filename)
    return obj;
 }
 
+/* We must calculate the symbol count differently in COFF in order to take AUX
+symbols into account. Some symbols are written using multiple entries, so there
+can be a primary entry and 0 or more aux entries for each symbol */
+static unsigned int coff_symbol_count(backend_object* obj)
+{
+   unsigned int count=0;
+   backend_symbol* sym = backend_get_first_symbol(obj);
+   while (sym)
+   {
+      count++; // for the primary symbol
+      switch (sym->type)
+      {
+      case SYMBOL_TYPE_FILE:
+         if (sym->section == 0)
+            count++; // aux type 4
+         break;
+      case SYMBOL_TYPE_SECTION:
+         count++; // aux type 5
+         break;
+      case SYMBOL_TYPE_FUNCTION:
+         count++; // aux format 1
+         break;
+      }
+      //printf("counting symbol %s (%u)\n", sym->name, count);
+      sym = backend_get_next_symbol(obj);
+   }
+   return count;
+}
+
+static int coff_write_file(backend_object* obj, const char* filename)
+{
+   FILE* f = fopen(filename, "wb");
+   if (!f)
+   {
+      printf("can't open file\n");
+      return -1;
+   }
+
+   // fill and write the coff header
+   printf("writing COFF header\n");
+   coff_header ch;
+   ch.machine = IMAGE_FILE_MACHINE_I386;
+   ch.num_sections = backend_section_count(obj);
+   ch.time_created = time(NULL);
+   ch.offset_symtab = sizeof(coff_header) + sizeof(section_header)*backend_section_count(obj);
+   printf("counting symbols\n");
+   ch.num_symbols = coff_symbol_count(obj);
+	printf("setting count to %i symbols\n", ch.num_symbols);
+   ch.size_optional_hdr = 0;
+   ch.flags = (1<<COFF_FLAG_32BIT_MACHINE) | (1<<COFF_FLAG_DEBUG_STRIPPED);
+   fwrite(&ch, sizeof(coff_header), 1, f);
+
+   // section table immediately follows the COFF header
+   printf("writing %u sections\n", backend_section_count(obj));
+   backend_section* sec = backend_get_first_section(obj);
+   while (sec)
+   {
+      section_header sh;
+      printf("Writing section %s\n", sec->name);
+      strncpy(sh.name, sec->name, 9); // yes, we want the null to go one past the end of buffer
+      sh.size_in_mem = sec->size;
+      sh.address = sec->address;
+      sh.data_offset = ch.offset_symtab + ch.num_symbols*sizeof(symbol) + 0; // after the string table
+      sh.reloc = 0;
+      sh.linenums = 0;
+      sh.num_reloc = 0;
+      sh.num_lines = 0;
+      
+      // section alignment
+      sh.flags = (sec->alignment<<SCN_ALIGN) & SCN_ALIGN_MASK;
+
+      // convert the flags
+      if (sec->flags & SECTION_FLAG_CODE)
+         sh.flags |= SCN_CNT_CODE | SCN_MEM_EXECUTE | SCN_MEM_READ;
+      if (sec->flags & SECTION_FLAG_INIT_DATA)
+         sh.flags |= SCN_CNT_INIT_DATA |SCN_MEM_READ | SCN_MEM_WRITE;
+      if (sec->flags & SECTION_FLAG_UNINIT_DATA)
+         sh.flags |= SCN_CNT_UNINIT_DATA |SCN_MEM_READ | SCN_MEM_WRITE;
+      if (sec->flags & SECTION_FLAG_COMMENTS)
+         sh.flags |= SCN_LNK_INFO |SCN_LNK_REMOVE;
+      if (sec->flags & SECTION_FLAG_DISCARDABLE)
+         sh.flags |= SCN_LNK_REMOVE;
+
+      printf("writing section header\n");
+      fwrite(&sh, sizeof(section_header), 1, f);
+      sec = backend_get_next_section(obj);
+   }
+
+   // symbol table
+   backend_symbol* sym = backend_get_first_symbol(obj);
+   while (sym)
+   {
+      symbol s;
+      memcpy(s.name.str, sym->name, 8);
+      s.val = sym->val;
+      s.section = sym->section->index;
+      s.auxsymbols = 0;
+      switch (sym->type)
+      {
+      case SYMBOL_TYPE_FILE:
+         s.type = 0x20;
+         s.class = SYM_CLASS_FILE;
+         s.section = -2;
+         break;
+      case SYMBOL_TYPE_SECTION:
+         s.type = 0;
+         s.class = SYM_CLASS_STATIC;
+         break;
+      case SYMBOL_TYPE_FUNCTION:
+         s.type = 0;
+         s.class = SYM_CLASS_EXTERNAL;
+         break;
+      }
+      fwrite(&s, sizeof(symbol), 1, f);
+      sym = backend_get_next_symbol(obj);
+   }
+
+   // string table immediately follows the symbol table
+
+   fclose(f);
+   return 0;
+}
+
+static const char pe_header[] =
+{
+ 0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
+ 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00,
+ 0x0e, 0x1f, 0xba, 0x0e, 0x00, 0xb4, 0x09, 0xcd, 0x21, 0xb8, 0x01, 0x4c, 0xcd, 0x21, 0x54, 0x68,
+ 0x69, 0x73, 0x20, 0x70, 0x72, 0x6f, 0x67, 0x72, 0x61, 0x6d, 0x20, 0x63, 0x61, 0x6e, 0x6e, 0x6f,
+ 0x74, 0x20, 0x62, 0x65, 0x20, 0x72, 0x75, 0x6e, 0x20, 0x69, 0x6e, 0x20, 0x44, 0x4f, 0x53, 0x20,
+ 0x6d, 0x6f, 0x64, 0x65, 0x2e, 0x0d, 0x0d, 0x0a, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+static int pe32_write_file(backend_object* obj, const char* filename)
+{
+   FILE* f = fopen(filename, "wb");
+   if (!f)
+   {
+      printf("can't open file\n");
+      return -1;
+   }
+
+   // write file header
+   char buff[4];
+   fwrite(&pe_header, sizeof(pe_header), 1, f);
+   memcpy(buff, PE_MAGIC, MAGIC_SIZE);
+   fwrite(buff, MAGIC_SIZE, 1, f);
+
+   // fill and write the coff header
+   printf("writing PE file\n");
+   coff_header ch;
+   ch.machine = IMAGE_FILE_MACHINE_I386;
+   ch.num_sections = backend_section_count(obj);
+   ch.time_created = time(NULL);
+   ch.offset_symtab = sizeof(coff_header) + sizeof(optional_header) + +sizeof(pe32_windows_header) + sizeof(data_dirs) + sizeof(section_header)*backend_section_count(obj);
+   printf("counting symbols\n");
+   ch.num_symbols = coff_symbol_count(obj);
+	printf("setting count to %i symbols\n", ch.num_symbols);
+   ch.size_optional_hdr = sizeof(optional_header);
+   ch.flags = (1<<COFF_FLAG_32BIT_MACHINE) | (1<<COFF_FLAG_DEBUG_STRIPPED) | (1<<COFF_FLAG_EXECUTABLE_IMAGE);
+   fwrite(&ch, sizeof(coff_header), 1, f);
+
+   unsigned short state = STATE_ID_NORMAL; // STATE_ID_
+   fwrite(&state, sizeof(state), 1, f);
+
+   // standard optional header
+   optional_header oh;
+   oh.major_linker_ver=9;
+   oh.minor_linker_ver=87;
+   oh.code_size=6666;
+   oh.data_size=7777;
+   oh.uninit_data_size=1111;
+   oh.entry=2222;
+   oh.code_base=1234;
+   oh.data_base=4567;
+   fwrite(&oh, sizeof(optional_header), 1, f);
+
+   // windows optional header
+   pe32_windows_header wh;
+   wh.base = 0;
+   wh.section_alignment = 1;
+   wh.file_alignment = 1;
+   wh.os_major=8;
+   wh.os_minor=1;
+   wh.subsystem = IMAGE_SUBSYSTEM_POSIX_CUI;
+   fwrite(&wh, sizeof(pe32_windows_header), 1, f);
+
+   // data dirs
+   data_dirs dd;
+   fwrite(&dd, sizeof(data_dirs), 1, f);
+
+   // section table immediately follows the COFF header
+   printf("writing %u sections\n", backend_section_count(obj));
+   backend_section* sec = backend_get_first_section(obj);
+   while (sec)
+   {
+      section_header sh;
+      printf("Writing section %s\n", sec->name);
+      strncpy(sh.name, sec->name, 9); // yes, we want the null to go one past the end of buffer
+      sh.size_in_mem = sec->size;
+      sh.address = sec->address;
+      sh.data_offset = ch.offset_symtab + ch.num_symbols*sizeof(symbol) + 0; // after the string table
+      sh.reloc = 0;
+      sh.linenums = 0;
+      sh.num_reloc = 0;
+      sh.num_lines = 0;
+      
+      // section alignment
+      sh.flags = (sec->alignment<<SCN_ALIGN) & SCN_ALIGN_MASK;
+
+      // convert the flags
+      if (sec->flags & SECTION_FLAG_CODE)
+         sh.flags |= SCN_CNT_CODE | SCN_MEM_EXECUTE | SCN_MEM_READ;
+      if (sec->flags & SECTION_FLAG_INIT_DATA)
+         sh.flags |= SCN_CNT_INIT_DATA |SCN_MEM_READ | SCN_MEM_WRITE;
+      if (sec->flags & SECTION_FLAG_UNINIT_DATA)
+         sh.flags |= SCN_CNT_UNINIT_DATA |SCN_MEM_READ | SCN_MEM_WRITE;
+      if (sec->flags & SECTION_FLAG_COMMENTS)
+         sh.flags |= SCN_LNK_INFO |SCN_LNK_REMOVE;
+      if (sec->flags & SECTION_FLAG_DISCARDABLE)
+         sh.flags |= SCN_LNK_REMOVE;
+
+      printf("writing section header\n");
+      fwrite(&sh, sizeof(section_header), 1, f);
+      sec = backend_get_next_section(obj);
+   }
+
+   // symbol table
+	printf("writing symbol table\n");
+   backend_symbol* sym = backend_get_first_symbol(obj);
+   while (sym)
+   {
+		char tmp[19];
+      symbol s;
+      s.val = sym->val;
+      s.section = sym->section->index;
+      s.auxsymbols = 0;
+      switch (sym->type)
+      {
+      case SYMBOL_TYPE_FILE:
+			printf("writing file symbol %s\n", sym->name);
+         s.type = 0x20;
+         s.class = SYM_CLASS_FILE;
+         s.section = -2;
+			s.auxsymbols = 1;
+			memcpy(s.name.str, ".file", 6);
+			fwrite(&s, sizeof(symbol), 1, f);
+			memcpy(tmp, sym->name, 19);
+			fwrite(tmp, 18, 1, f);
+         break;
+
+      case SYMBOL_TYPE_SECTION:
+			memcpy(s.name.str, sym->name, 8);
+         s.type = 0;
+         s.class = SYM_CLASS_STATIC;
+			s.auxsymbols = 1;
+         break;
+
+      case SYMBOL_TYPE_FUNCTION:
+      	memcpy(s.name.str, sym->name, 8);
+         s.type = 0;
+         s.class = SYM_CLASS_EXTERNAL;
+			s.auxsymbols = 1;
+         break;
+      }
+      sym = backend_get_next_symbol(obj);
+   }
+
+   // string table immediately follows the symbol table
+
+   fclose(f);
+   return 0;
+}
 backend_ops pe32_backend =
 {
    .format = pe32_format,
-   .read = coff_read_file
+   .read = pe_read_file,
+   //.write = coff_write_file
+   .write = pe32_write_file
 };
 
 backend_ops pe32plus_backend =
 {
    .format = pe32plus_format,
-   .read = coff_read_file
+   .read = pe_read_file
 };
 
 void pe_init(void)
