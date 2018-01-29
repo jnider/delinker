@@ -107,6 +107,9 @@ unlink_file(const char* input_filename, const char* output_target)
 {
    backend_object* obj = backend_read(input_filename);
 
+	if (!obj)
+		return -ERR_BAD_FORMAT;
+
    // check for symbols, and rebuild if necessary
    if (backend_symbol_count(obj) == 0)
    {
@@ -255,7 +258,7 @@ main (int argc, char *argv[])
       printf("Can't open input file %s\n", input_filename);
       break;
    case -ERR_BAD_FORMAT:
-      printf("Unexpected input file format\n");
+      printf("Unhandled input file format\n");
       break;
    case -ERR_NO_SYMS:
       printf("No symbols found - try again with --reconstruct-symbols\n");
