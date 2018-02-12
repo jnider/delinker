@@ -1,4 +1,4 @@
-SRC = unlinker.c backend.c pe.c ll.c
+SRC = unlinker.c backend.c pe.c elf.c ll.c
 
 OBJS = $(SRC:%.c=%.o)
 
