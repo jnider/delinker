@@ -3,24 +3,43 @@
 #include "backend.h"
 #include "ll.h"
 
-#define MAX_BACKENDS 3
-#define DECLARE_BACKEND(_x) extern int _x##_init()
+#define DECLARE_BACKEND_INIT_FUNC(_x) extern int _x##_init()
+#define BACKEND_INIT_FUNC(_x) _x##_init
 
-DECLARE_BACKEND(pe);
+DECLARE_BACKEND_INIT_FUNC(pe);
+DECLARE_BACKEND_INIT_FUNC(elf);
 
-static backend_ops* backend[MAX_BACKENDS] = {0};
+
+typedef int (*backend_init_func)(void);
+static backend_init_func backend_table[] = 
+{
+	BACKEND_INIT_FUNC(pe),
+	BACKEND_INIT_FUNC(elf),
+};
+
+#define BACKEND_INIT(_x) backend_table[_x]
+#define BACKEND_COUNT sizeof(backend_table)/sizeof(void*)
+
 static int num_backends;
+static backend_ops* backend[BACKEND_COUNT] = {0};
 
 int backend_init(void)
 {
-   pe_init();
+	int i;
+	for (i=0; i < BACKEND_COUNT; i++)
+	{
+		if (BACKEND_INIT(i))
+			BACKEND_INIT(i)();
+	}
+
+	return 0;
 }
 
 void backend_register(backend_ops* be)
 {
-   if (num_backends >= MAX_BACKENDS)
+   if (num_backends >= BACKEND_COUNT)
    {
-      printf("Can't accept any more backends - sorry, we're full! (MAX_BACKENDS=%i)\n", MAX_BACKENDS);
+      printf("Can't accept any more backends - sorry, we're full! (MAX_BACKENDS=%lu)\n", BACKEND_COUNT);
       return;
    }
 
@@ -151,7 +170,7 @@ backend_section* backend_add_section(backend_object* obj, unsigned int index, ch
    s->address = address;
    s->flags = flags;
    s->data = data;
-   printf("Adding section %s size:%i address:0x%x flags:0x%x\n", s->name, s->size, s->address, s->flags);
+   //printf("Adding section %s size:%i address:0x%x flags:0x%x\n", s->name, s->size, s->address, s->flags);
    ll_add(obj->section_table, s);
    //printf("There are %i sections\n", backend_section_count(obj));
    return s;

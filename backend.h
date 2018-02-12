@@ -3,6 +3,8 @@
 Define the interface for target-specific backend implementations, as well as the
 public functions for talking to backends */
 
+/* To add a new backend, read instructions in backend.c */
+
 #include "ll.h"
 
 #define SECTION_FLAG_CODE 1
@@ -20,7 +22,8 @@ typedef enum backend_type
    OBJECT_TYPE_PE32,
    OBJECT_TYPE_PE_ROM,
    OBJECT_TYPE_PE32PLUS,
-   OBJECT_TYPE_ELF32
+   OBJECT_TYPE_ELF32,
+   OBJECT_TYPE_ELF64
 } backend_type;
 
 typedef enum backend_symbol_type
