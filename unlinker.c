@@ -133,6 +133,7 @@ unlink_file(const char* input_filename, backend_type output_target)
    // get the filenames from the input symbol table
    /* iterate over all symbols in the input table */
 	backend_section* sec_text = NULL;
+	backend_section* bs = NULL;
    backend_object* oo = NULL;
    backend_symbol* sym = backend_get_first_symbol(obj);
    char output_filename[24]; // why is this set to 24??
@@ -145,7 +146,7 @@ unlink_file(const char* input_filename, backend_type output_target)
       {
       case SYMBOL_TYPE_FILE:
          // if the symbol name ends in .c open a corresponding .o for it
-         printf("File name: %s\n", sym->name);
+         //printf("File name: %s\n", sym->name);
          len = strlen(sym->name);
          if (sym->name[len-2] != '.' || sym->name[len-1] != 'c')
          {
@@ -153,14 +154,23 @@ unlink_file(const char* input_filename, backend_type output_target)
             continue;
          }
 
-         // close previous file by writing data
+			// I have seen the case where the same filename was present more than once (consecutively)
+         if (strncmp(sym->name, output_filename, strlen(output_filename)-2) == 0)
+				break;
+
+			// I have also seen "ghost" files with no name, for no apparent reason
+			if (strlen(sym->name) == 0)
+				break;
+
+         // close previous file by writing data, if the filenames don't match
          if (oo)
          {
-            printf("Closing existing file %s\n", output_filename);
+            //printf("Closing existing file %s\n", output_filename);
             if (backend_write(oo, output_filename))
 					printf("error writing file\n");
             backend_destructor(oo);
             oo = NULL;
+				sec_text = NULL;
          }
 
          // start a new one
@@ -175,20 +185,33 @@ unlink_file(const char* input_filename, backend_type output_target)
 
       case SYMBOL_TYPE_SECTION:
          // create the sections and copy the symbols
-         printf("Got section %s\n", sym->name);
-         backend_section* bs = backend_get_section_by_name(obj, sym->name);
-         printf("Found matching input section\n");
+         //printf("Got section %s\n", sym->name);
+         bs = backend_get_section_by_name(obj, sym->name);
+         //printf("Found matching input section\n");
          backend_add_section(oo, 0, strdup(bs->name), 0, bs->address, NULL, bs->alignment, bs->flags);
          break;
 
       case SYMBOL_TYPE_FUNCTION:
+			//printf("Got a function symbol\n");
 			if (!sec_text)
          	sec_text = backend_get_section_by_name(oo, ".text");
 
 			if (!sec_text)
 			{
-				printf("no text section found - creating\n");
-        		sec_text = backend_add_section(oo, 0, strdup(".text"), 0, 0, NULL, 2, SECTION_FLAG_CODE);
+				unsigned long size=0;
+				char* data=NULL;
+				//printf("no text section found - creating\n");
+				if (sym->section)
+				{
+					size = sym->section->size;
+					data = malloc(size);
+					memcpy(data, sym->section->data, size);
+				}
+				else
+				{
+					printf("Symbol %s doesn't have an associated section\n", sym->name);
+				}
+        		sec_text = backend_add_section(oo, 0, strdup(".text"), size, 0, data, 2, SECTION_FLAG_CODE);
 			}
 			if (!sec_text)
 			{
@@ -202,7 +225,7 @@ unlink_file(const char* input_filename, backend_type output_target)
 			else
 				base = 0;
 
-         printf("Got function %s\n", sym->name);
+         printf("Function %s @ 0x%lx\n", sym->name, sym->val-base);
          // set the base address of all instructions referencing memory to 0
          // add function symbols to the output symbol table
 			backend_add_symbol(oo, sym->name, sym->val-base, SYMBOL_TYPE_FUNCTION, 0, sec_text);
@@ -214,7 +237,7 @@ unlink_file(const char* input_filename, backend_type output_target)
    // write data to file
    if (oo)
    {
-   	printf("Writing file %s\n", output_filename);
+   	//printf("Writing file %s\n", output_filename);
       if (backend_write(oo, output_filename))
 			printf("Error writing file\n");
       backend_destructor(oo);
