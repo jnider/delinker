@@ -31,7 +31,8 @@ typedef enum backend_symbol_type
    SYMBOL_TYPE_NONE,
    SYMBOL_TYPE_FILE,
    SYMBOL_TYPE_SECTION,
-   SYMBOL_TYPE_FUNCTION
+   SYMBOL_TYPE_FUNCTION,
+	SYMBOL_TYPE_OBJECT,
 } backend_symbol_type;
 
 typedef struct backend_section
@@ -39,7 +40,7 @@ typedef struct backend_section
    unsigned int index;
    char* name;
    unsigned int size;
-   unsigned int address;	// base address for loading this section
+   unsigned long address;	// base address for loading this section
    unsigned int flags; // see SECTION_FLAGS_
    char* data;
    unsigned int alignment; // 2**x
@@ -48,7 +49,7 @@ typedef struct backend_section
 typedef struct backend_symbol
 {
    char* name;
-   unsigned int val;
+   unsigned long val;
    backend_symbol_type type;
    unsigned int flags;
    backend_section* section;
@@ -61,18 +62,21 @@ typedef struct backend_object
    linked_list* symbol_table;
    const list_node* iter_symbol;
    const list_node* iter_section;
-	unsigned int address;	// base address for loading
+	unsigned long address;	// base address for loading
 } backend_object;
 
 typedef struct backend_ops
 {
+	const char* (*name)(void);
    backend_type (*format)(void);
    backend_object* (*read)(const char* filename);
    int (*write)(backend_object* obj, const char* filename);
 } backend_ops;
 
+// global operations
 int backend_init(void); /* initialize the library for use - don't call any functions before this one */
-void backend_register(); /* register specific backend implementation so it is known to the library */
+void backend_register(backend_ops* be); /* register specific backend implementation so it is known to the library */
+backend_type backend_lookup_target(const char* name); /* given a string, find a backend that understands the type and convert to a known value to later be used with backend_set_type() */
 
 // general
 backend_object* backend_create(void);
@@ -80,17 +84,19 @@ void backend_destructor(backend_object* obj);
 backend_object* backend_read(const char* filename);
 int backend_write(backend_object* obj, const char* filename);
 void backend_set_type(backend_object* obj, backend_type t);
-void backend_set_address(backend_object* obj, unsigned int addr);
+backend_type backend_get_type(backend_object* obj);
+void backend_set_address(backend_object* obj, unsigned long addr); // set base address for loading the object
+void backend_set_entry_point(backend_object* obj, unsigned long addr);
 
 // symbols
 unsigned int backend_symbol_count(backend_object* obj);
-int backend_add_symbol(backend_object* obj, const char* name, unsigned int val, backend_symbol_type type, unsigned int flags, backend_section* sec);
+int backend_add_symbol(backend_object* obj, const char* name, unsigned long val, backend_symbol_type type, unsigned int flags, backend_section* sec);
 backend_symbol* backend_get_first_symbol(backend_object* obj);
 backend_symbol* backend_get_next_symbol(backend_object* obj);
 
 // sections
 unsigned int backend_section_count(backend_object* obj);
-backend_section* backend_add_section(backend_object* obj, unsigned int index, char* name, unsigned int size, unsigned int address, char* data, unsigned int alignment, unsigned int flags);
+backend_section* backend_add_section(backend_object* obj, unsigned int index, char* name, unsigned long size, unsigned long address, char* data, unsigned int alignment, unsigned long flags);
 backend_section* backend_get_section_by_index(backend_object* obj, unsigned int index);
 backend_section* backend_get_section_by_name(backend_object* obj, const char* name);
 backend_section* backend_get_first_section(backend_object* obj);

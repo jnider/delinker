@@ -316,6 +316,12 @@ static const char* section_flags_lookup[] =
    "can be written to"
 };
 
+const char* pe32_name(void)
+{
+	return "pe32";
+}
+
+
 const char* lookup_machine(unsigned short machine)
 {
    for (int i=0; i < sizeof(machine_lookup)/sizeof(struct machine_name); i++)
@@ -952,6 +958,7 @@ static int pe32_write_file(backend_object* obj, const char* filename)
 }
 backend_ops pe32_backend =
 {
+	.name = pe32_name,
    .format = pe32_format,
    .read = pe_read_file,
    //.write = coff_write_file

@@ -103,7 +103,7 @@ static int reconstruct_symbols(backend_object* obj)
 }
 
 static int
-unlink_file(const char* input_filename, const char* output_target)
+unlink_file(const char* input_filename, backend_type output_target)
 {
    backend_object* obj = backend_read(input_filename);
 
@@ -124,12 +124,19 @@ unlink_file(const char* input_filename, const char* output_target)
    }
 
    // if the output target is not specified, use the input target
+	if (output_target == OBJECT_TYPE_NONE)
+	{
+		output_target = backend_get_type(obj);
+		//printf("Setting output type to match input: %i\n", output_target);
+	}
+
    // get the filenames from the input symbol table
    /* iterate over all symbols in the input table */
 	backend_section* sec_text = NULL;
    backend_object* oo = NULL;
    backend_symbol* sym = backend_get_first_symbol(obj);
-   char output_filename[24];
+   char output_filename[24]; // why is this set to 24??
+	unsigned long base=0;	// base address to remove from symbol values
    while (sym)
    {
       // start by finding a file symbol
@@ -138,7 +145,7 @@ unlink_file(const char* input_filename, const char* output_target)
       {
       case SYMBOL_TYPE_FILE:
          // if the symbol name ends in .c open a corresponding .o for it
-         //printf("symbol name: %s\n", sym->name);
+         printf("File name: %s\n", sym->name);
          len = strlen(sym->name);
          if (sym->name[len-2] != '.' || sym->name[len-1] != 'c')
          {
@@ -146,11 +153,12 @@ unlink_file(const char* input_filename, const char* output_target)
             continue;
          }
 
-         // write data to file
+         // close previous file by writing data
          if (oo)
          {
-            printf("Writing file %s\n", output_filename);
-            backend_write(oo, output_filename);
+            printf("Closing existing file %s\n", output_filename);
+            if (backend_write(oo, output_filename))
+					printf("error writing file\n");
             backend_destructor(oo);
             oo = NULL;
          }
@@ -162,7 +170,7 @@ unlink_file(const char* input_filename, const char* output_target)
          if (!oo)
             return -10; 
          printf("=== Opening file %s\n", output_filename);
-         backend_set_type(oo, OBJECT_TYPE_PE32);
+         backend_set_type(oo, output_target);
          break;
 
       case SYMBOL_TYPE_SECTION:
@@ -175,36 +183,41 @@ unlink_file(const char* input_filename, const char* output_target)
 
       case SYMBOL_TYPE_FUNCTION:
 			if (!sec_text)
-			{
-				printf("no text section found - searching\n");
          	sec_text = backend_get_section_by_name(oo, ".text");
-				if (!sec_text)
-				{
-					printf("no text section found - adding\n");
-         		sec_text = backend_add_section(oo, 0, strdup(".text"), 0, 0, NULL, 2, SECTION_FLAG_CODE);
-					if (!sec_text)
-					{
-						printf("no text section found - major disaster\n");
-						continue;
-					}
-				}
+
+			if (!sec_text)
+			{
+				printf("no text section found - creating\n");
+        		sec_text = backend_add_section(oo, 0, strdup(".text"), 0, 0, NULL, 2, SECTION_FLAG_CODE);
 			}
-         //printf("Got function %s\n", sym->name);
+			if (!sec_text)
+			{
+				printf("can't create text section - major disaster\n");
+				continue;
+			}
+
+			// get the input section that this symbol relates to
+			if (sym->section)
+				base = sym->section->address;
+			else
+				base = 0;
+
+         printf("Got function %s\n", sym->name);
          // set the base address of all instructions referencing memory to 0
          // add function symbols to the output symbol table
-			backend_add_symbol(oo, sym->name, sym->val, SYMBOL_TYPE_FUNCTION, 0, sec_text);
+			backend_add_symbol(oo, sym->name, sym->val-base, SYMBOL_TYPE_FUNCTION, 0, sec_text);
          break;
       }
    
-
       sym = backend_get_next_symbol(obj);
    }
    // write data to file
    if (oo)
    {
    	printf("Writing file %s\n", output_filename);
-      backend_write(oo, output_filename);
-      //backend_destructor(oo);
+      if (backend_write(oo, output_filename))
+			printf("Error writing file\n");
+      backend_destructor(oo);
       oo = NULL;
    }
 }
@@ -251,7 +264,7 @@ main (int argc, char *argv[])
 
    backend_init();
 
-   int ret = unlink_file(input_filename, output_target);
+   int ret = unlink_file(input_filename, backend_lookup_target(output_target));
    switch (ret)
    {
    case -ERR_BAD_FILE:

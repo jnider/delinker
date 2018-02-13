@@ -50,7 +50,23 @@ void backend_register(backend_ops* be)
    }
 
    backend[num_backends++] = be;
-   printf("num backends %i\n", num_backends);
+   //printf("num backends %i\n", num_backends);
+}
+
+backend_type backend_lookup_target(const char* name)
+{
+	if (!name)
+   	return OBJECT_TYPE_NONE;
+
+	// iterate through all known backends, comparing the string. When we find a match, convert the name to the correct type
+   for (int i=0; i < num_backends; i++)
+   {
+		printf("Looking up %i\n", i);
+		printf("Found backend %s\n", backend[i]->name());
+      if (backend[i]->name && strcmp(backend[i]->name(), name) == 0)
+			return backend[i]->format();
+   }
+   return OBJECT_TYPE_NONE;
 }
 
 backend_object* backend_create(void)
@@ -80,6 +96,7 @@ backend_object* backend_read(const char* filename)
 
 int backend_write(backend_object* obj, const char* filename)
 {
+	//printf("backend_write looking for type %i\n", obj->type);
    // run through all backends until we find one that matches the output format
    for (int i=0; i < num_backends; i++)
    {
@@ -88,19 +105,27 @@ int backend_write(backend_object* obj, const char* filename)
          if (!backend[i]->write)
             return -2;
 
+			//printf("Using backend %i\n", i);
          backend[i]->write(obj, filename);
          return 0;
       }
    }
+
    return -1;
 }
 
 void backend_set_type(backend_object* obj, backend_type t)
 {
+	//printf("setting backend type to %i\n", t);
    obj->type = t;
 }
 
-void backend_set_address(backend_object* obj, unsigned int addr)
+backend_type backend_get_type(backend_object* obj)
+{
+	return obj->type;
+}
+
+void backend_set_address(backend_object* obj, unsigned long addr)
 {
 	obj->address = addr;
 }
@@ -113,7 +138,7 @@ unsigned int backend_symbol_count(backend_object* obj)
       return 0;
 }
 
-int backend_add_symbol(backend_object* obj, const char* name, unsigned int val, backend_symbol_type type, unsigned int flags, backend_section* sec)
+int backend_add_symbol(backend_object* obj, const char* name, unsigned long val, backend_symbol_type type, unsigned int flags, backend_section* sec)
 {
    if (!obj->symbol_table)
       obj->symbol_table = ll_init();
@@ -124,7 +149,7 @@ int backend_add_symbol(backend_object* obj, const char* name, unsigned int val, 
    s->type = type;
    s->flags = flags;
    s->section = sec;
-   //printf("Adding %s\n", s->name);
+   //printf("Adding %s type=%i val=0x%lx\n", s->name, s->type, s->val);
    ll_add(obj->symbol_table, s);
    //printf("There are %i symbols\n", backend_symbol_count(obj));
    return 0;
@@ -156,7 +181,7 @@ unsigned int backend_section_count(backend_object* obj)
    return ll_size(obj->section_table);
 }
 
-backend_section* backend_add_section(backend_object* obj, unsigned int index, char* name, unsigned int size, unsigned int address, char* data, unsigned int alignment, unsigned int flags)
+backend_section* backend_add_section(backend_object* obj, unsigned int index, char* name, unsigned long size, unsigned long address, char* data, unsigned int alignment, unsigned long flags)
 {
    if (!obj->section_table)
       obj->section_table = ll_init();
@@ -195,7 +220,7 @@ backend_section* backend_get_section_by_name(backend_object* obj, const char* na
    for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
    {
       backend_section* sec = iter->val;
-      //printf(".. %s\n", sec->name);
+      printf(".. %s\n", sec->name);
       if (!strcmp(name, sec->name))
          return sec;
    }
@@ -220,15 +245,19 @@ backend_section* backend_get_next_section(backend_object* obj)
 
 void backend_destructor(backend_object* obj)
 {
+	//printf("backend_destructor\n");
    // destroy the symbol table
    if (obj->symbol_table)
    {
+		//printf("has symbol table with %i symbols\n", backend_symbol_count(obj));
+		backend_symbol *a = backend_get_first_symbol(obj);
+		//printf("first symbol is: %s\n", a->name);
       backend_symbol* s = ll_pop(obj->symbol_table);
       while (s)
       {
-         printf("Popped %s\n", s->name);
-         //free(s->name);
-         //free(s);
+         //printf("Popped %s\n", s->name);
+         free(s->name);
+         free(s);
          s = ll_pop(obj->symbol_table);
       }
    }
