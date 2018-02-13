@@ -195,6 +195,7 @@ backend_section* backend_add_section(backend_object* obj, unsigned int index, ch
    s->address = address;
    s->flags = flags;
    s->data = data;
+	s->alignment = alignment;
    //printf("Adding section %s size:%i address:0x%x flags:0x%x\n", s->name, s->size, s->address, s->flags);
    ll_add(obj->section_table, s);
    //printf("There are %i sections\n", backend_section_count(obj));
@@ -220,7 +221,7 @@ backend_section* backend_get_section_by_name(backend_object* obj, const char* na
    for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
    {
       backend_section* sec = iter->val;
-      printf(".. %s\n", sec->name);
+      //printf(".. %s\n", sec->name);
       if (!strcmp(name, sec->name))
          return sec;
    }
