@@ -38,13 +38,14 @@ void ll_add(linked_list* ll, void* val)
 
 void* ll_pop(linked_list* ll)
 {
-   list_node* tmp = ll->head;
-   if (!ll->head)
-   {
-      ll->head = ll->head->next;
-      ll->count--;
-   }
-   return tmp;
+	if (!ll->head)
+		return NULL;
+
+	list_node* tmp = ll->head;
+	ll->head = ll->head->next;
+	ll->count--;
+
+	return tmp->val;
 }
 
 const list_node* ll_iter_start(const linked_list* ll)
