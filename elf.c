@@ -626,6 +626,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 	fh.sh_num = 8; // the regulars: NULL, .text, .data, .rodata, .bss, .symtab, .strtab, .shstrtab
 	fh.sh_str_index = 7;
 	// may also need .rela.text 
+	//printf("write header\n");
    fwrite(&fh, sizeof(elf64_header), 1, f);
 
 	// so we know where to write the next object
@@ -638,25 +639,32 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 	shstrtab[0] = 0; // the initial entry is always 0
 
 	// write the null section header
+	//printf("write null section header\n");
 	memset(&sh, 0, sizeof(elf64_section));
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
-	// write the .text section header
+	// write the .text section & header
+	//printf("write .text section\n");
+	sh.name = strtab_entry - shstrtab;
+	sh.type = SHT_PROGBITS;
+	sh.flags = (1<<SHF_ALLOC) | (1<<SHF_EXECINSTR);
+	sh.addr = 0;
+	sh.size = 0;
+	sh.addralign = 0;
+
 	bs = backend_get_section_by_name(obj, ".text");
 	if (bs)
 	{
 		sh.addr = bs->address;
 		sh.size = bs->size;
 		sh.addralign = bs->alignment;
+		//printf("Using .text alignment= %i\n", sh.addralign);
 	}
-
-	sh.name = strtab_entry - shstrtab;
-	sh.type = SHT_PROGBITS;
-	sh.flags = (1<<SHF_ALLOC) | (1<<SHF_EXECINSTR);
 
 	// write the data if there is any
 	if (sh.size)
 	{
+		//printf("Writing data %i\n", sh.size);
 		sh.offset = fpos_data;
 		fpos_cur = ftell(f);
 		fseek(f, sh.offset, SEEK_SET);
@@ -664,19 +672,12 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 		fseek(f, fpos_cur, SEEK_SET);
 		fpos_data += sh.size;
 	}
-	//printf("strtab: %p strtab_entry: %p offset: %u\n", shstrtab, strtab_entry, sh.name);
 	strcpy(strtab_entry, ".text");
 	strtab_entry += strlen(strtab_entry) + 1;
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
 	// write the .data section header
-	bs = backend_get_section_by_name(obj, ".data");
-	if (bs)
-	{
-		sh.addr = bs->address;
-		sh.size = bs->size;
-		sh.addralign = bs->alignment;
-	}
+	//printf("write .data section\n");
 	sh.name = strtab_entry - shstrtab;
 	sh.type = SHT_PROGBITS;
 	sh.flags = (1<<SHF_ALLOC) | (1<<SHF_WRITE);
@@ -684,6 +685,16 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 	sh.link = 0;
 	sh.info = 0;
 	sh.entsize = 0;
+	sh.addr = 0;
+	sh.size = 0;
+	sh.addralign = 0;
+	bs = backend_get_section_by_name(obj, ".data");
+	if (bs)
+	{
+		sh.addr = bs->address;
+		sh.size = bs->size;
+		sh.addralign = bs->alignment;
+	}
 
 	// write the data if there is any
 	if (sh.size)
@@ -700,13 +711,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
 	// write the .bss section header
-	bs = backend_get_section_by_name(obj, ".bss");
-	if (bs)
-	{
-		sh.addr = bs->address;
-		sh.size = bs->size;
-		sh.addralign = bs->alignment;
-	}
+	//printf("write .bss section\n");
 	sh.name = strtab_entry - shstrtab;
 	sh.type = SHT_NOBITS;
 	sh.flags = (1<<SHF_ALLOC) | (1<<SHF_WRITE);
@@ -714,6 +719,16 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 	sh.link = 0;
 	sh.info = 0;
 	sh.entsize = 0;
+	sh.addr = 0;
+	sh.size = 0;
+	sh.addralign = 0;
+	bs = backend_get_section_by_name(obj, ".bss");
+	if (bs)
+	{
+		sh.addr = bs->address;
+		sh.size = bs->size;
+		sh.addralign = bs->alignment;
+	}
 
 	// write the data if there is any
 	if (sh.size)
@@ -730,13 +745,6 @@ static int elf64_write_file(backend_object* obj, const char* filename)
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
 	// write the .rodata section header
-	bs = backend_get_section_by_name(obj, ".rodata");
-	if (bs)
-	{
-		sh.addr = bs->address;
-		sh.size = bs->size;
-		sh.addralign = bs->alignment;
-	}
 	sh.name = strtab_entry - shstrtab;
 	sh.type = SHT_PROGBITS;
 	sh.flags = (1<<SHF_ALLOC);
@@ -744,6 +752,16 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 	sh.link = 0;
 	sh.info = 0;
 	sh.entsize = 0;
+	sh.addr = 0;
+	sh.size = 0;
+	sh.addralign = 0;
+	bs = backend_get_section_by_name(obj, ".rodata");
+	if (bs)
+	{
+		sh.addr = bs->address;
+		sh.size = bs->size;
+		sh.addralign = bs->alignment;
+	}
 
 	// write the data if there is any
 	if (sh.size)
@@ -760,13 +778,6 @@ static int elf64_write_file(backend_object* obj, const char* filename)
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
 	// write the .symtab section header
-	bs = backend_get_section_by_name(obj, ".symtab");
-	if (bs)
-	{
-		sh.size = bs->size;
-		sh.addr = bs->address;
-		sh.addralign = bs->alignment;
-	}
 	sh.name = strtab_entry - shstrtab;
 	sh.type = SHT_SYMTAB;
 	sh.flags = 0;
@@ -774,6 +785,16 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 	sh.link = 0;
 	sh.info = 0;
 	sh.entsize = sizeof(elf64_symbol);
+	sh.addr = 0;
+	sh.size = 0;
+	sh.addralign = 8;
+	bs = backend_get_section_by_name(obj, ".symtab");
+	if (bs)
+	{
+		sh.size = bs->size;
+		sh.addr = bs->address;
+		sh.addralign = bs->alignment;
+	}
 
 	// write the data if there is any
 	if (sh.size)
@@ -790,13 +811,6 @@ static int elf64_write_file(backend_object* obj, const char* filename)
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
 	// write the .strtab section header
-	bs = backend_get_section_by_name(obj, ".strtab");
-	if (bs)
-	{
-		sh.addr = bs->address;
-		sh.size = bs->size;
-		sh.addralign = bs->alignment;
-	}
 	sh.name = strtab_entry - shstrtab;
 	strcpy(strtab_entry, ".strtab");
 	strtab_entry += strlen(strtab_entry) + 1;
@@ -806,6 +820,16 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 	sh.link = 0;
 	sh.info = 0;
 	sh.entsize = 0;
+	sh.addr = 0;
+	sh.size = 0;
+	sh.addralign = 1;
+	bs = backend_get_section_by_name(obj, ".strtab");
+	if (bs)
+	{
+		sh.addr = bs->address;
+		sh.size = bs->size;
+		sh.addralign = bs->alignment;
+	}
 
 	//printf("STRTAB entry: %s\n", sh.name + shstrtab);
 	// write the data if there is any
@@ -827,13 +851,13 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 
 	sh.type = SHT_STRTAB;
 	sh.flags = 0;
-	sh.addr = 0;
 	sh.offset = fpos_data;
-	sh.size = strtab_entry - shstrtab;
 	sh.link = 0;
 	sh.info = 0;
-	sh.addralign = 0;
 	sh.entsize = 0;
+	sh.addr = 0;
+	sh.size = strtab_entry - shstrtab;
+	sh.addralign = 1;
 
 	// write the data of the section header string table
 	if (sh.size)
