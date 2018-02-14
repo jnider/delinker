@@ -13,8 +13,26 @@
 #define ELF_MAGIC "\x7F\x45\x4c\x46"
 #define MAGIC_SIZE 4
 
+#define ELF_SYMBOL_GLOBAL 0x0010
+#define ELF_SYMBOL_WEAK 0x0020
+
+#define ELF_SECTION_UNDEF 0
 #define ELF_SECTION_ABS 0xFFF1
 #define ELF_SECTION_COMMON 0xFFF2
+
+enum elf_sections
+{
+	SECTION_INDEX_NULL,			// NULL
+	SECTION_INDEX_TEXT,			// .text
+	SECTION_INDEX_DATA,			// .data
+	SECTION_INDEX_RODATA,		// .rodata
+	SECTION_INDEX_BSS,			// .bss
+	SECTION_INDEX_SYMTAB,		// .symtab
+	SECTION_INDEX_STRTAB,		// .strtab
+	SECTION_INDEX_SHSTRTAB,		// .shstrtab
+	// may also need .rela.text 
+	SECTION_COUNT
+};
 
 typedef enum elf_machine
 {
@@ -364,6 +382,25 @@ backend_symbol_type elf_to_backend_sym_type(unsigned char info)
 	return SYMBOL_TYPE_NONE;
 }
 
+unsigned char backend_to_elf_sym_type(backend_symbol_type t)
+{
+	switch(t)
+	{
+	case SYMBOL_TYPE_NONE:
+		return ELF_ST_NOTYPE;
+	case SYMBOL_TYPE_OBJECT:
+		return ELF_ST_OBJECT;
+	case SYMBOL_TYPE_FUNCTION:
+		return ELF_ST_FUNC;
+	case SYMBOL_TYPE_SECTION:
+		return ELF_ST_SECTION;
+	case SYMBOL_TYPE_FILE:
+		return ELF_ST_FILE;
+	}
+
+	return ELF_ST_NOTYPE;
+}
+
 int elf64_find_section(FILE* f, const elf64_header* h, const char* name, const char* strtab, elf64_section* s)
 {
 	for (int i=0; i < h->sh_num; i++)
@@ -389,6 +426,7 @@ static backend_object* elf32_read_file(FILE* f, elf32_header* h)
 
 static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 {
+	elf64_section in_sec;
 	backend_section* sec_bss = NULL;
 	backend_section* sec_data = NULL;
 	backend_section* sec_interp = NULL;
@@ -411,123 +449,118 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 	// are sequential starting from 0 (which according to the spec they are, but who knows).
 	backend_section** sec_lut = calloc(h->sh_num, sizeof(backend_section*));
 
-	elf64_section* s = malloc(sizeof(elf64_section)); // this could be on the stack
 
 	// first, preload the section header string table
    fseek(f, h->sh_off + h->shent_size * h->sh_str_index, SEEK_SET);
-   fread(s, h->shent_size, 1, f);
+   fread(&in_sec, h->shent_size, 1, f);
 
-	char* section_strtab = malloc(s->size);
-	fseek(f, s->offset, SEEK_SET);
-	fread(section_strtab, s->size, 1, f);
+	char* section_strtab = malloc(in_sec.size);
+	fseek(f, in_sec.offset, SEEK_SET);
+	fread(section_strtab, in_sec.size, 1, f);
 	
-	printf("ELF64: Adding sections\n");
+	//printf("ELF64: Adding sections\n");
 	// add the usual suspects
 	int index;
-	index = elf64_find_section(f, h, ".bss", section_strtab, s);
+	index = elf64_find_section(f, h, ".bss", section_strtab, &in_sec);
 	if (index >= 0)
 	{
 		unsigned long flags;
-		char* data = malloc(s->size);
-		fseek(f, s->offset, SEEK_SET);
-		fread(data, s->size, 1, f);
+		char* data = malloc(in_sec.size);
+		fseek(f, in_sec.offset, SEEK_SET);
+		fread(data, in_sec.size, 1, f);
 		flags = 1<<SECTION_FLAG_UNINIT_DATA;
-		sec_bss = backend_add_section(obj, 0, ".bss", s->size, s->addr, data, s->addralign, flags);
+		sec_bss = backend_add_section(obj, 0, ".bss", in_sec.size, in_sec.addr, data, in_sec.addralign, flags);
 		sec_lut[index] = sec_bss;
-		free(data);
 	}
 
-	index = elf64_find_section(f, h, ".data", section_strtab, s);
+	index = elf64_find_section(f, h, ".data", section_strtab, &in_sec);
 	if (index >= 0)
 	{
 		unsigned long flags;
-		char* data = malloc(s->size);
-		fseek(f, s->offset, SEEK_SET);
-		fread(data, s->size, 1, f);
+		char* data = malloc(in_sec.size);
+		fseek(f, in_sec.offset, SEEK_SET);
+		fread(data, in_sec.size, 1, f);
 		flags = 1<<SECTION_FLAG_INIT_DATA;
-		sec_data = backend_add_section(obj, 0, ".data", s->size, s->addr, data, s->addralign, flags);
+		sec_data = backend_add_section(obj, 0, ".data", in_sec.size, in_sec.addr, data, in_sec.addralign, flags);
 		sec_lut[index] = sec_data;
-		free(data);
 	}
 
-	index = elf64_find_section(f, h, ".interp", section_strtab, s);
+	index = elf64_find_section(f, h, ".interp", section_strtab, &in_sec);
 	if (index >= 0)
 	{
 		unsigned long flags;
-		char* data = malloc(s->size);
-		fseek(f, s->offset, SEEK_SET);
-		fread(data, s->size, 1, f);
+		char* data = malloc(in_sec.size);
+		fseek(f, in_sec.offset, SEEK_SET);
+		fread(data, in_sec.size, 1, f);
 		flags = 0;
-		sec_interp = backend_add_section(obj, 0, ".interp", s->size, s->addr, data, s->addralign, flags);
+		sec_interp = backend_add_section(obj, 0, ".interp", in_sec.size, in_sec.addr, data, in_sec.addralign, flags);
 		sec_lut[index] = sec_interp;
-		free(data);
 	}
 
-	index = elf64_find_section(f, h, ".rodata", section_strtab, s);
+	index = elf64_find_section(f, h, ".rodata", section_strtab, &in_sec);
 	if (index >= 0)
 	{
 		unsigned long flags;
-		char* data = malloc(s->size);
-		fseek(f, s->offset, SEEK_SET);
-		fread(data, s->size, 1, f);
+		char* data = malloc(in_sec.size);
+		fseek(f, in_sec.offset, SEEK_SET);
+		fread(data, in_sec.size, 1, f);
 		flags = 1<<SECTION_FLAG_INIT_DATA;
-		sec_rodata = backend_add_section(obj, 0, ".rodata", s->size, s->addr, data, s->addralign, flags);
+		sec_rodata = backend_add_section(obj, 0, ".rodata", in_sec.size, in_sec.addr, data, in_sec.addralign, flags);
 		sec_lut[index] = sec_rodata;
-		free(data);
 	}
 
-	index = elf64_find_section(f, h, ".text", section_strtab, s);
+	index = elf64_find_section(f, h, ".text", section_strtab, &in_sec);
 	if (index >= 0)
 	{
 		unsigned long flags;
-		char* data = malloc(s->size);
-		fseek(f, s->offset, SEEK_SET);
-		fread(data, s->size, 1, f);
+		//printf("ELF: .text section has %lu bytes of data at offset 0x%lx\n", in_sec.size, in_sec.offset);
+		char* data = malloc(in_sec.size);
+		fseek(f, in_sec.offset, SEEK_SET);
+		fread(data, in_sec.size, 1, f);
+		//printf("Data: %02x %02x %02x %02x\n", data[0]&0xFF, data[1]&0xFF, data[2]&0xFF, data[3]&0xFF);
 		flags = 1<<SECTION_FLAG_CODE;
-		sec_text = backend_add_section(obj, 0, ".text", s->size, s->addr, data, s->addralign, flags);
+		sec_text = backend_add_section(obj, 0, ".text", in_sec.size, in_sec.addr, data, in_sec.addralign, flags);
 		sec_lut[index] = sec_text;
-		free(data);
 	}
 
-	index = elf64_find_section(f, h, ".got", section_strtab, s);
+	index = elf64_find_section(f, h, ".got", section_strtab, &in_sec);
 	if (index >= 0)
 	{
 		unsigned long flags;
-		char* data = malloc(s->size);
-		fseek(f, s->offset, SEEK_SET);
-		fread(data, s->size, 1, f);
+		char* data = malloc(in_sec.size);
+		fseek(f, in_sec.offset, SEEK_SET);
+		fread(data, in_sec.size, 1, f);
 		flags = 0;
-		sec_got = backend_add_section(obj, 0, ".got", s->size, s->addr, data, s->addralign, flags);
+		sec_got = backend_add_section(obj, 0, ".got", in_sec.size, in_sec.addr, data, in_sec.addralign, flags);
 		sec_lut[index] = sec_got;
-		free(data);
 	}
 
 	// find and load the symbol string table
 	char* sym_strtab = NULL;
-	if (elf64_find_section(f, h, ".strtab", section_strtab, s) < 0)
+	if (elf64_find_section(f, h, ".strtab", section_strtab, &in_sec) < 0)
 	{
 		printf("Warning: can't find string table\n");
 		goto done;
 	}
 
-	sym_strtab = malloc(s->size);
-	fseek(f, s->offset, SEEK_SET);
-	fread(sym_strtab, s->size, 1, f);
+	sym_strtab = malloc(in_sec.size);
+	fseek(f, in_sec.offset, SEEK_SET);
+	fread(sym_strtab, in_sec.size, 1, f);
 
 	// load and add the symbols separately
-	if (elf64_find_section(f, h, ".symtab", section_strtab, s) < 0)
+	if (elf64_find_section(f, h, ".symtab", section_strtab, &in_sec) < 0)
 	{
 		printf("Warning: can't find symbol table\n");
 		goto done;
 	}
 	
-	elf64_symbol* symtab = malloc(s->size);
-	fseek(f, s->offset, SEEK_SET);
-	fread(symtab, s->size, 1, f);
+	elf64_symbol* symtab = malloc(in_sec.size);
+	fseek(f, in_sec.offset, SEEK_SET);
+	fread(symtab, in_sec.size, 1, f);
 
-	//printf("Symbol size: %lu vs %lu\n", s->entsize, sizeof(elf64_symbol));
+	//printf("Symbol size: %lu vs %lu\n", in_sec.entsize, sizeof(elf64_symbol));
 	elf64_symbol* sym = NULL;
-	for (int i=0; i < s->size/s->entsize; i++)
+	for (int i=0; i < in_sec.size/in_sec.entsize; i++)
 	{
 		sym = &symtab[i];
 		if (symtab[i].name)
@@ -541,13 +574,12 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 			else
 				sec = sec_lut[sym->section_index];
 
-			backend_add_symbol(obj, name, sym->value, elf_to_backend_sym_type(sym->info), 0, sec);
+			backend_add_symbol(obj, name, sym->value, elf_to_backend_sym_type(sym->info), sym->size, 0, sec);
 		}
 	}
 	free(symtab);
 
 done:
-	free(s);
 	free(section_strtab);
 	free(sym_strtab);
 	free(sec_lut);
@@ -623,10 +655,8 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 	fh.sh_off = sizeof(elf64_header);
 	fh.eh_size = sizeof(elf64_header); 
 	fh.shent_size = sizeof(elf64_section);
-	fh.sh_num = 8; // the regulars: NULL, .text, .data, .rodata, .bss, .symtab, .strtab, .shstrtab
-	fh.sh_str_index = 7;
-	// may also need .rela.text 
-	//printf("write header\n");
+	fh.sh_num = SECTION_COUNT; // see elf_sections
+	fh.sh_str_index = SECTION_INDEX_SHSTRTAB;
    fwrite(&fh, sizeof(elf64_header), 1, f);
 
 	// so we know where to write the next object
@@ -635,8 +665,13 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 
 	// build the section header string table with the names we need
 	char* shstrtab = malloc(1000); // just need enough space for a few strings
-	char* strtab_entry = shstrtab+1;
+	char* shstrtab_entry = shstrtab+1;
 	shstrtab[0] = 0; // the initial entry is always 0
+
+	// build the symbol string table as well
+	char* strtab = malloc(4096);
+	char* strtab_entry = strtab+1;
+	strtab[0] = 0; // the initial entry is always 0
 
 	// write the null section header
 	//printf("write null section header\n");
@@ -645,19 +680,19 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 
 	// write the .text section & header
 	//printf("write .text section\n");
-	sh.name = strtab_entry - shstrtab;
+	sh.name = shstrtab_entry - shstrtab;
 	sh.type = SHT_PROGBITS;
 	sh.flags = (1<<SHF_ALLOC) | (1<<SHF_EXECINSTR);
 	sh.addr = 0;
 	sh.size = 0;
-	sh.addralign = 0;
+	sh.addralign = 1;
 
 	bs = backend_get_section_by_name(obj, ".text");
 	if (bs)
 	{
 		sh.addr = bs->address;
 		sh.size = bs->size;
-		sh.addralign = bs->alignment;
+		//sh.addralign = bs->alignment;
 		//printf("Using .text alignment= %i\n", sh.addralign);
 	}
 
@@ -672,13 +707,13 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 		fseek(f, fpos_cur, SEEK_SET);
 		fpos_data += sh.size;
 	}
-	strcpy(strtab_entry, ".text");
-	strtab_entry += strlen(strtab_entry) + 1;
+	strcpy(shstrtab_entry, ".text");
+	shstrtab_entry += strlen(shstrtab_entry) + 1;
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
 	// write the .data section header
 	//printf("write .data section\n");
-	sh.name = strtab_entry - shstrtab;
+	sh.name = shstrtab_entry - shstrtab;
 	sh.type = SHT_PROGBITS;
 	sh.flags = (1<<SHF_ALLOC) | (1<<SHF_WRITE);
 	sh.offset = 0;
@@ -696,7 +731,6 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 		sh.addralign = bs->alignment;
 	}
 
-	// write the data if there is any
 	if (sh.size)
 	{
 		sh.offset = fpos_data;
@@ -706,13 +740,13 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 		fseek(f, fpos_cur, SEEK_SET);
 		fpos_data += sh.size;
 	}
-	strcpy(strtab_entry, ".data");
-	strtab_entry += strlen(strtab_entry) + 1;
+	strcpy(shstrtab_entry, ".data");
+	shstrtab_entry += strlen(shstrtab_entry) + 1;
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
 	// write the .bss section header
 	//printf("write .bss section\n");
-	sh.name = strtab_entry - shstrtab;
+	sh.name = shstrtab_entry - shstrtab;
 	sh.type = SHT_NOBITS;
 	sh.flags = (1<<SHF_ALLOC) | (1<<SHF_WRITE);
 	sh.offset = 0;
@@ -730,7 +764,6 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 		sh.addralign = bs->alignment;
 	}
 
-	// write the data if there is any
 	if (sh.size)
 	{
 		sh.offset = fpos_data;
@@ -740,12 +773,12 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 		fseek(f, fpos_cur, SEEK_SET);
 		fpos_data += sh.size;
 	}
-	strcpy(strtab_entry, ".bss");
-	strtab_entry += strlen(strtab_entry) + 1;
+	strcpy(shstrtab_entry, ".bss");
+	shstrtab_entry += strlen(shstrtab_entry) + 1;
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
 	// write the .rodata section header
-	sh.name = strtab_entry - shstrtab;
+	sh.name = shstrtab_entry - shstrtab;
 	sh.type = SHT_PROGBITS;
 	sh.flags = (1<<SHF_ALLOC);
 	sh.offset = 0;
@@ -763,7 +796,6 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 		sh.addralign = bs->alignment;
 	}
 
-	// write the data if there is any
 	if (sh.size)
 	{
 		sh.offset = fpos_data;
@@ -773,47 +805,76 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 		fseek(f, fpos_cur, SEEK_SET);
 		fpos_data += sh.size;
 	}
-	strcpy(strtab_entry, ".rodata");
-	strtab_entry += strlen(strtab_entry) + 1;
+	strcpy(shstrtab_entry, ".rodata");
+	shstrtab_entry += strlen(shstrtab_entry) + 1;
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
 	// write the .symtab section header
-	sh.name = strtab_entry - shstrtab;
+	sh.name = shstrtab_entry - shstrtab;
 	sh.type = SHT_SYMTAB;
 	sh.flags = 0;
 	sh.offset = 0;
-	sh.link = 0;
+	sh.link = SECTION_INDEX_STRTAB; // which string table to use
 	sh.info = 0;
 	sh.entsize = sizeof(elf64_symbol);
 	sh.addr = 0;
-	sh.size = 0;
+	sh.size = (backend_symbol_count(obj) + 2) * sizeof(elf64_symbol);
 	sh.addralign = 8;
-	bs = backend_get_section_by_name(obj, ".symtab");
-	if (bs)
-	{
-		sh.size = bs->size;
-		sh.addr = bs->address;
-		sh.addralign = bs->alignment;
-	}
 
-	// write the data if there is any
 	if (sh.size)
 	{
+		elf64_symbol s={0};
+		backend_symbol* sym;
+		fpos_data = (fpos_data + sh.addralign-1) & ~((unsigned long)sh.addralign-1);
 		sh.offset = fpos_data;
 		fpos_cur = ftell(f);
+		printf("We have %lu symbols\n", sh.size/sh.entsize);
 		fseek(f, sh.offset, SEEK_SET);
-		fwrite(bs->data, sh.size, 1, f);
+		
+		// write an empty symbol first
+		fwrite(&s, sizeof(elf64_symbol), 1, f);
+
+		// and a symbol representing the source file
+		s.name = strtab_entry - strtab;
+		s.info = ELF_ST_FILE;
+		s.section_index = ELF_SECTION_ABS;
+		strcpy(strtab_entry, filename);
+		strtab_entry += strlen(strtab_entry) + 1;
+		fwrite(&s, sizeof(elf64_symbol), 1, f);
+
+		// now the rest of the symbols
+		sym = backend_get_first_symbol(obj);
+		while (sym)
+		{
+			s.name = strtab_entry - strtab;
+			s.info = backend_to_elf_sym_type(sym->type);
+			s.other = 0;
+			s.section_index = SECTION_INDEX_TEXT;
+			s.value = sym->val;
+			s.size = sym->size;
+
+			// take into account any flags set in the backend
+			if (sym->flags & SYMBOL_FLAG_GLOBAL)
+				s.info |= ELF_SYMBOL_GLOBAL;
+			if (sym->flags & SYMBOL_FLAG_EXTERNAL)
+				s.section_index = ELF_SECTION_UNDEF;
+
+			strcpy(strtab_entry, sym->name);
+			strtab_entry += strlen(strtab_entry) + 1;
+			fwrite(&s, sizeof(elf64_symbol), 1, f);
+			sym = backend_get_next_symbol(obj);
+		}
 		fseek(f, fpos_cur, SEEK_SET);
 		fpos_data += sh.size;
 	}
-	strcpy(strtab_entry, ".symtab");
-	strtab_entry += strlen(strtab_entry) + 1;
+	strcpy(shstrtab_entry, ".symtab");
+	shstrtab_entry += strlen(shstrtab_entry) + 1;
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
 	// write the .strtab section header
-	sh.name = strtab_entry - shstrtab;
-	strcpy(strtab_entry, ".strtab");
-	strtab_entry += strlen(strtab_entry) + 1;
+	sh.name = shstrtab_entry - shstrtab;
+	strcpy(shstrtab_entry, ".strtab");
+	shstrtab_entry += strlen(shstrtab_entry) + 1;
 	sh.type = SHT_STRTAB;
 	sh.flags = 0;
 	sh.offset = 0;
@@ -821,33 +882,26 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 	sh.info = 0;
 	sh.entsize = 0;
 	sh.addr = 0;
-	sh.size = 0;
+	sh.size = strtab_entry - strtab;
 	sh.addralign = 1;
-	bs = backend_get_section_by_name(obj, ".strtab");
-	if (bs)
-	{
-		sh.addr = bs->address;
-		sh.size = bs->size;
-		sh.addralign = bs->alignment;
-	}
-
-	//printf("STRTAB entry: %s\n", sh.name + shstrtab);
-	// write the data if there is any
 	if (sh.size)
 	{
+		// align fpos_data
+		fpos_data = (fpos_data + sh.addralign) & ~(sh.addralign-1);
 		sh.offset = fpos_data;
 		fpos_cur = ftell(f);
 		fseek(f, sh.offset, SEEK_SET);
-		fwrite(bs->data, sh.size, 1, f);
+		printf("Writing the strtab @ 0x%lx\n", sh.offset);
+		fwrite(strtab, sh.size, 1, f);
 		fseek(f, fpos_cur, SEEK_SET);
 		fpos_data += sh.size;
 	}
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
 	// write the .shstrtab section header
-	strcpy(strtab_entry, ".shstrtab");
-	sh.name = strtab_entry - shstrtab;
-	strtab_entry += strlen(strtab_entry) + 1;
+	strcpy(shstrtab_entry, ".shstrtab");
+	sh.name = shstrtab_entry - shstrtab;
+	shstrtab_entry += strlen(shstrtab_entry) + 1;
 
 	sh.type = SHT_STRTAB;
 	sh.flags = 0;
@@ -856,7 +910,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 	sh.info = 0;
 	sh.entsize = 0;
 	sh.addr = 0;
-	sh.size = strtab_entry - shstrtab;
+	sh.size = shstrtab_entry - shstrtab;
 	sh.addralign = 1;
 
 	// write the data of the section header string table
@@ -872,6 +926,8 @@ static int elf64_write_file(backend_object* obj, const char* filename)
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
 done:
+	free(shstrtab);
+	free(strtab);
    fclose(f);
    return 0;
 }
