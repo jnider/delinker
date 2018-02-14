@@ -138,7 +138,7 @@ unsigned int backend_symbol_count(backend_object* obj)
       return 0;
 }
 
-int backend_add_symbol(backend_object* obj, const char* name, unsigned long val, backend_symbol_type type, unsigned int flags, backend_section* sec)
+int backend_add_symbol(backend_object* obj, const char* name, unsigned long val, backend_symbol_type type, unsigned long size, unsigned int flags, backend_section* sec)
 {
    if (!obj->symbol_table)
       obj->symbol_table = ll_init();
@@ -147,9 +147,10 @@ int backend_add_symbol(backend_object* obj, const char* name, unsigned long val,
    s->name = strdup(name);
    s->val = val;
    s->type = type;
+	s->size = size;
    s->flags = flags;
    s->section = sec;
-   //printf("Adding %s type=%i val=0x%lx\n", s->name, s->type, s->val);
+   //printf("Adding %s type=%i size=%lu val=0x%lx\n", s->name, s->type, s->size, s->val);
    ll_add(obj->symbol_table, s);
    //printf("There are %i symbols\n", backend_symbol_count(obj));
    return 0;

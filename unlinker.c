@@ -54,7 +54,7 @@ static int reconstruct_symbols(backend_object* obj)
       return -ERR_NO_TEXT_SECTION;
 
 	// add a fake symbol for the filename
-	backend_add_symbol(obj, "source.c", 0, SYMBOL_TYPE_FILE, 0, sec_text);
+	backend_add_symbol(obj, "source.c", 0, SYMBOL_TYPE_FILE, 0, 0, sec_text);
 
 	// decode (disassemble) the executable section, and assume that any instruction following a 'ret'
    // is the beginning of a new function. Create a symbol entry at that address, and add it to the list.
@@ -84,7 +84,7 @@ static int reconstruct_symbols(backend_object* obj)
 			if (sawret)
 			{
 				sprintf(name, "fn%06X", addr);
-				backend_add_symbol(obj, name, addr, SYMBOL_TYPE_FUNCTION, 0, sec_text);
+				backend_add_symbol(obj, name, addr, SYMBOL_TYPE_FUNCTION, 0, 0, sec_text);
 			}
 			sawret = 1;
 			continue;
@@ -95,7 +95,7 @@ static int reconstruct_symbols(backend_object* obj)
 		{
 			sawret = 0;
 			sprintf(name, "fn%06X", addr);
-			backend_add_symbol(obj, name, addr, SYMBOL_TYPE_FUNCTION, 0, sec_text);
+			backend_add_symbol(obj, name, addr, SYMBOL_TYPE_FUNCTION, 0, 0, sec_text);
 		}
 	}
 
@@ -142,6 +142,8 @@ unlink_file(const char* input_filename, backend_type output_target)
    {
       // start by finding a file symbol
       int len;
+		unsigned int flags=0;
+		unsigned int type=SYMBOL_TYPE_FUNCTION;
       switch (sym->type)
       {
       case SYMBOL_TYPE_FILE:
@@ -193,42 +195,46 @@ unlink_file(const char* input_filename, backend_type output_target)
 
       case SYMBOL_TYPE_FUNCTION:
 			//printf("Got a function symbol\n");
-			if (!sec_text)
+
+			// skip any symbol that starts with an underscore
+			if (sym->name[0] == '_')
+				break;
+
+			if (sym->section && !sec_text)
          	sec_text = backend_get_section_by_name(oo, ".text");
 
-			if (!sec_text)
+			if (sym->section && !sec_text)
 			{
 				unsigned long size=0;
 				char* data=NULL;
 				//printf("no text section found - creating\n");
-				if (sym->section)
-				{
-					size = sym->section->size;
-					data = malloc(size);
-					memcpy(data, sym->section->data, size);
-				}
-				else
-				{
-					printf("Symbol %s doesn't have an associated section\n", sym->name);
-				}
+				//printf("Symbol %s points to section %s\n", sym->name, sym->section->name);
+				size = sym->section->size;
+				data = malloc(size);
+				memcpy(data, sym->section->data, size);
+				//printf("Data: %02x %02x %02x %02x\n", data[0]&0xFF, data[1]&0xFF, data[2]&0xFF, data[3]&0xFF);
         		sec_text = backend_add_section(oo, 0, strdup(".text"), size, 0, data, 2, SECTION_FLAG_CODE);
 			}
-			if (!sec_text)
-			{
-				printf("can't create text section - major disaster\n");
-				continue;
-			}
 
-			// get the input section that this symbol relates to
+			// set the base address of functions to 0
 			if (sym->section)
 				base = sym->section->address;
 			else
 				base = 0;
 
-         printf("Function %s @ 0x%lx\n", sym->name, sym->val-base);
+			// any function with a 0 size is probably an external function (from a library)
+			// even though it is a function, it should be marked as "No type"
+			if (sym->size == 0)
+			{
+				flags |= SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL;
+				type = SYMBOL_TYPE_NONE;
+			}
+
+         printf("Function %s @ 0x%lx + 0x%lx\n", sym->name, base, sym->val-base);
          // set the base address of all instructions referencing memory to 0
+
          // add function symbols to the output symbol table
-			backend_add_symbol(oo, sym->name, sym->val-base, SYMBOL_TYPE_FUNCTION, 0, sec_text);
+			backend_add_symbol(oo, sym->name, sym->val-base, type, sym->size, flags, sec_text);
          break;
       }
    

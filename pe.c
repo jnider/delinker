@@ -637,7 +637,7 @@ static backend_object* pe_read_file(const char* filename)
          }
          if (s->auxsymbols == 1)
             i++; // the aux doesn't seem to be in use by MSFT, so I'm not going to bother reading it now
-         backend_add_symbol(obj, strndup(name, 8), s->val, SYMBOL_TYPE_FUNCTION, 0, backend_get_section_by_index(obj, s->section));
+         backend_add_symbol(obj, strndup(name, 8), s->val, SYMBOL_TYPE_FUNCTION, 0, 0, backend_get_section_by_index(obj, s->section));
       }
       else
       {
@@ -646,7 +646,7 @@ static backend_object* pe_read_file(const char* filename)
          case SYM_CLASS_FILE:
             if (strcmp(name, ".file"))
                printf("Warning: 'file' symbol is not named '.file'!\n");
-            backend_add_symbol(obj, strndup((char*)&symtab[++i], 18), s->val, SYMBOL_TYPE_FILE, 0, NULL);
+            backend_add_symbol(obj, strndup((char*)&symtab[++i], 18), s->val, SYMBOL_TYPE_FILE, 0, 0, NULL);
             break;
 
          case SYM_CLASS_SECTION:
@@ -659,7 +659,7 @@ static backend_object* pe_read_file(const char* filename)
                //symbol_aux_sec* a = &(symtab[++i]);
                i++; // remove this when uncommenting previous line
             }
-            backend_add_symbol(obj, strndup(name, 8), s->val, SYMBOL_TYPE_SECTION, 0, NULL);
+            backend_add_symbol(obj, strndup(name, 8), s->val, SYMBOL_TYPE_SECTION, 0, 0, NULL);
             // here we probably need to update the section object as well
             break;
 

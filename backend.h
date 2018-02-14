@@ -16,6 +16,9 @@ public functions for talking to backends */
 // r/w/x
 // cached/pageable
 
+#define SYMBOL_FLAG_GLOBAL 	(1<<SYMBOL_FLAG_SHIFT_GLOBAL)
+#define SYMBOL_FLAG_EXTERNAL 	(1<<SYMBOL_FLAG_SHIFT_EXTERNAL)
+
 typedef enum backend_type
 {
    OBJECT_TYPE_NONE,
@@ -35,6 +38,12 @@ typedef enum backend_symbol_type
 	SYMBOL_TYPE_OBJECT,
 } backend_symbol_type;
 
+typedef enum backend_symbol_flag
+{
+	SYMBOL_FLAG_SHIFT_GLOBAL,
+	SYMBOL_FLAG_SHIFT_EXTERNAL,
+} backend_symbol_flag;
+
 typedef struct backend_section
 {
    unsigned int index;
@@ -51,7 +60,8 @@ typedef struct backend_symbol
    char* name;
    unsigned long val;
    backend_symbol_type type;
-   unsigned int flags;
+   unsigned int flags; // see SYMBOL_FLAGS_
+	unsigned long size;
    backend_section* section;
 } backend_symbol;
 
@@ -90,7 +100,7 @@ void backend_set_entry_point(backend_object* obj, unsigned long addr);
 
 // symbols
 unsigned int backend_symbol_count(backend_object* obj);
-int backend_add_symbol(backend_object* obj, const char* name, unsigned long val, backend_symbol_type type, unsigned int flags, backend_section* sec);
+int backend_add_symbol(backend_object* obj, const char* name, unsigned long val, backend_symbol_type type, unsigned long size, unsigned int flags, backend_section* sec);
 backend_symbol* backend_get_first_symbol(backend_object* obj);
 backend_symbol* backend_get_next_symbol(backend_object* obj);
 
