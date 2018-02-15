@@ -142,7 +142,7 @@ unlink_file(const char* input_filename, backend_type output_target)
    {
       // start by finding a file symbol
       int len;
-		unsigned int flags=0;
+		unsigned int flags=SYMBOL_FLAG_GLOBAL; // mark all functions as global
 		unsigned int type=SYMBOL_TYPE_FUNCTION;
       switch (sym->type)
       {
