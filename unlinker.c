@@ -102,6 +102,57 @@ static int reconstruct_symbols(backend_object* obj)
    return 0;
 }
 
+/* the data buffer likely includes code that we don't need */
+static int fixup_function_data(backend_object* obj)
+{
+	// ensure the symbols are sorted in ascending load order, and don't have any overlaps  (curr is the absolute address)
+	unsigned long curr = 0;
+
+	printf("fixup_function_data %i\n", backend_symbol_count(obj));
+   backend_symbol* sym = backend_get_first_symbol(obj);
+	while (sym)
+	{
+		printf("sym: %s\t\t0x%lx -> 0x%lx\n", sym->name, sym->val, sym->val+sym->size);
+		if (sym->val < curr)
+		{
+			printf("Overlap detected @ 0x%lx!\n", sym->val);
+			return -1;
+		}
+		curr = sym->val + sym->size;
+      sym = backend_get_next_symbol(obj);
+	}
+
+	// find the the .text section (containing code)
+	backend_section* code = backend_get_section_by_name(obj, ".text");
+	if (!code)
+	{
+		printf("Can't find .text section\n");
+		return -2;
+	}
+
+	// now compact the code (curr is the offset)
+	curr = 0;
+	sym = backend_get_first_symbol(obj);
+	while (sym)
+	{
+		// if a symbol has 0 length, skip it
+		if (sym->size && sym->val != curr)
+		{
+			printf("Moving function @ 0x%lx to 0x%lx\n", sym->val, curr);
+			memmove(code->data + curr, code->data + sym->val, sym->size);
+			sym->val = curr; // update the symbol address
+			curr += sym->size;
+		}
+		sym = backend_get_next_symbol(obj);
+	}
+
+	// update the new size of the data
+	printf("Setting code size to %lu\n", curr);
+	code->size = curr;
+
+	return 0;
+}
+
 static int
 unlink_file(const char* input_filename, backend_type output_target)
 {
@@ -168,6 +219,7 @@ unlink_file(const char* input_filename, backend_type output_target)
          if (oo)
          {
             //printf("Closing existing file %s\n", output_filename);
+				fixup_function_data(oo);
             if (backend_write(oo, output_filename))
 					printf("error writing file\n");
             backend_destructor(oo);
@@ -244,6 +296,7 @@ unlink_file(const char* input_filename, backend_type output_target)
    if (oo)
    {
    	//printf("Writing file %s\n", output_filename);
+		fixup_function_data(oo);
       if (backend_write(oo, output_filename))
 			printf("Error writing file\n");
       backend_destructor(oo);
