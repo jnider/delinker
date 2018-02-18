@@ -8,7 +8,7 @@ unlinker: $(SRC)
 	gcc $(SRC) -ludis86 -o unlinker 
 
 clean:
-	rm -rf $(OBJS)
+	rm -rf $(OBJS) unlinker
 
 ctags:
-	ctags -R -f tags . /usr/local/include
+	ctags -R -f tags . /usr/local/include ~/projects/udis86/libudis86
