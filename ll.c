@@ -38,7 +38,7 @@ void ll_add(linked_list* ll, void* val)
 
 void* ll_pop(linked_list* ll)
 {
-	if (!ll->head)
+	if (!ll || !ll->head)
 		return NULL;
 
 	list_node* tmp = ll->head;
