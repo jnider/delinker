@@ -1,6 +1,8 @@
 /* General layout: https://en.wikipedia.org/wiki/Executable_and_Linkable_Format */
 /* 32-bit layout: http://www.cs.cmu.edu/afs/cs/academic/class/15213-s00/doc/elf.pdf */
 /* 64-bit layout: https://www.uclibc.org/docs/elf-64-gen.pdf */
+/* x86_64 Relocation types: https://docs.oracle.com/cd/E19120-01/open.solaris/819-0690/chapter7-2/index.html */
+/* PPC64 extension: http://refspecs.linuxfoundation.org/ELF/ppc64/PPC-elf64abi-1.9.pdf */
 
 #include <stdio.h>
 #include <string.h>
@@ -20,17 +22,21 @@
 #define ELF_SECTION_ABS 0xFFF1
 #define ELF_SECTION_COMMON 0xFFF2
 
+#define ELF_R_SYM(_x) (_x>>32)
+#define ELF_R_TYPE(_x) (_x & 0xFFFFFFFFL)
+#define ELF_R_INFO(_x, _t) (unsigned long)((unsigned long)(_x) << 32 | _t & ELF_R_TYPE(_t))
+
 enum elf_sections
 {
 	SECTION_INDEX_NULL,			// NULL
 	SECTION_INDEX_TEXT,			// .text
+	SECTION_INDEX_RELA,			// .rela.text 
 	SECTION_INDEX_DATA,			// .data
 	SECTION_INDEX_RODATA,		// .rodata
 	SECTION_INDEX_BSS,			// .bss
 	SECTION_INDEX_SYMTAB,		// .symtab
 	SECTION_INDEX_STRTAB,		// .strtab
 	SECTION_INDEX_SHSTRTAB,		// .shstrtab
-	// may also need .rela.text 
 	SECTION_COUNT
 };
 
@@ -108,6 +114,14 @@ typedef enum section_type
 #define SHF_WRITE 0
 #define SHF_ALLOC 1
 #define SHF_EXECINSTR 2
+// 3 = x
+// 4 = M (merge)
+// 5 = S (strings)
+#define SHF_INFO 6
+// L
+// G
+// T
+// E
 
 enum elf_symbol_type
 {
@@ -122,9 +136,31 @@ enum elf_symbol_type
 	ELF_ST_HIPROC = 15
 };
 
-// Flags
+typedef enum elf_x86_64_reloc_type
+{
+	R_AMD64_NONE,
+	R_AMD64_64,
+	R_AMD64_PC32,
+	R_AMD64_GOT32,
+	R_AMD64_PLT32,
+	R_AMD64_COPY,
+	R_AMD64_GLOB_DAT,
+	R_AMD64_JUMP_SLOT,
+	R_AMD64_RELATIVE,
+	R_AMD64_GOTPCREL,
+	R_AMD64_32,
+	R_AMD64_32S,
+	R_AMD64_16,
+	R_AMD64_PC16,
+	R_AMD64_8,
+	R_AMD64_PC8,
+	R_AMD64_PC64,
+	R_AMD64_GOTOFF64,
+	R_AMD64_GOTPC32,
+	R_AMD64_SIZE32,
+	R_AMD64_SIZE64
+} elf_x86_64_reloc_type;
 
-// section flags
 
 typedef struct elf32_header
 {
@@ -197,6 +233,31 @@ typedef struct elf64_symbol
 	unsigned long value;
 	unsigned long size;
 } elf64_symbol;
+
+typedef struct elf64_rela
+{
+	unsigned long addr;
+	unsigned long info; // see ELF_R_
+	long addend;
+} elf64_rela;
+
+typedef struct elf_verneed_header
+{
+  unsigned short version;
+  unsigned short count;
+  unsigned int	file;
+  unsigned int	aux;
+  unsigned int	next;
+} elf_verneed_header;
+
+typedef struct elf_verneed_entry
+{
+  unsigned int	hash;
+  unsigned short flags;
+  unsigned short other;
+  unsigned int	name;
+  unsigned int	next;
+} elf_verneed_entry;
 
 struct item_name
 {
@@ -401,6 +462,28 @@ unsigned char backend_to_elf_sym_type(backend_symbol_type t)
 	return ELF_ST_NOTYPE;
 }
 
+elf_x86_64_reloc_type backend_to_elf_reloc_type(backend_reloc_type t)
+{
+	switch(t)
+	{
+	case RELOC_TYPE_OFFSET:
+		return R_AMD64_32;
+	case RELOC_TYPE_PC_RELATIVE:
+		return R_AMD64_PC32;
+	}
+
+	return R_AMD64_NONE;
+}
+
+int elf_reloc_addend(elf_x86_64_reloc_type t)
+{
+	if (t == R_AMD64_PC32)
+		return -4;
+
+	return 0;
+}
+
+// read the section headers sequentially from the file, looking for a specific section name
 int elf64_find_section(FILE* f, const elf64_header* h, const char* name, const char* strtab, elf64_section* s)
 {
 	for (int i=0; i < h->sh_num; i++)
@@ -433,6 +516,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 	backend_section* sec_rodata = NULL;
 	backend_section* sec_text = NULL;
 	backend_section* sec_got = NULL;
+	backend_section* sec_tmp = NULL;
 
    backend_object* obj = backend_create();
    if (!obj)
@@ -447,7 +531,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 	// build a little lookup table relating ELF section numbers to backend section pointers
 	// the ELF section number is a direct index into the table, which assumes the section numbers
 	// are sequential starting from 0 (which according to the spec they are, but who knows).
-	backend_section** sec_lut = calloc(h->sh_num, sizeof(backend_section*));
+	backend_section** sec_lut = calloc(h->sh_num + 1, sizeof(backend_section*));
 
 
 	// first, preload the section header string table
@@ -459,114 +543,55 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 	fread(section_strtab, in_sec.size, 1, f);
 	
 	//printf("ELF64: Adding sections\n");
-	// add the usual suspects
-	int index;
-	index = elf64_find_section(f, h, ".bss", section_strtab, &in_sec);
-	if (index >= 0)
-	{
-		unsigned long flags;
-		char* data = malloc(in_sec.size);
-		fseek(f, in_sec.offset, SEEK_SET);
-		fread(data, in_sec.size, 1, f);
-		flags = 1<<SECTION_FLAG_UNINIT_DATA;
-		sec_bss = backend_add_section(obj, 0, ".bss", in_sec.size, in_sec.addr, data, in_sec.addralign, flags);
-		sec_lut[index] = sec_bss;
+	// load sections
+	for (int i=1; i < h->sh_num; i++)
+	{ 
+      fseek(f, h->sh_off + h->shent_size * i, SEEK_SET);
+      fread(&in_sec, h->shent_size, 1, f);
+
+		char* name = section_strtab + in_sec.name;
+		if (!backend_get_section_by_name(obj, name))
+		{
+			unsigned long flags=0;
+			char* data = malloc(in_sec.size);
+
+			fseek(f, in_sec.offset, SEEK_SET);
+			fread(data, in_sec.size, 1, f);
+
+			if (in_sec.flags & SHF_EXECINSTR)
+				flags |= 1 << SECTION_FLAG_CODE;
+			if (in_sec.flags & SHF_ALLOC && !(in_sec.flags & SHF_EXECINSTR) && (!in_sec.flags & SHF_WRITE))
+				flags = 1 << SECTION_FLAG_INIT_DATA;
+			if (in_sec.flags & SHF_ALLOC && !(in_sec.flags & SHF_EXECINSTR)) // not exactly accurate - better to set these flags according to section name
+				flags = 1<<SECTION_FLAG_UNINIT_DATA;
+			sec_tmp = backend_add_section(obj, i, name, in_sec.size, in_sec.addr, data, in_sec.entsize, in_sec.addralign, flags);
+			sec_lut[i] = sec_tmp;
+		}
 	}
 
-	index = elf64_find_section(f, h, ".data", section_strtab, &in_sec);
-	if (index >= 0)
+	// now that we have the raw data, try to format it as objects the backend can understand (strings, symbols, sections, relocs, etc)
+	backend_section* sec_strtab = backend_get_section_by_name(obj, ".strtab");
+	if (!sec_strtab)
 	{
-		unsigned long flags;
-		char* data = malloc(in_sec.size);
-		fseek(f, in_sec.offset, SEEK_SET);
-		fread(data, in_sec.size, 1, f);
-		flags = 1<<SECTION_FLAG_INIT_DATA;
-		sec_data = backend_add_section(obj, 0, ".data", in_sec.size, in_sec.addr, data, in_sec.addralign, flags);
-		sec_lut[index] = sec_data;
-	}
-
-	index = elf64_find_section(f, h, ".interp", section_strtab, &in_sec);
-	if (index >= 0)
-	{
-		unsigned long flags;
-		char* data = malloc(in_sec.size);
-		fseek(f, in_sec.offset, SEEK_SET);
-		fread(data, in_sec.size, 1, f);
-		flags = 0;
-		sec_interp = backend_add_section(obj, 0, ".interp", in_sec.size, in_sec.addr, data, in_sec.addralign, flags);
-		sec_lut[index] = sec_interp;
-	}
-
-	index = elf64_find_section(f, h, ".rodata", section_strtab, &in_sec);
-	if (index >= 0)
-	{
-		unsigned long flags;
-		char* data = malloc(in_sec.size);
-		fseek(f, in_sec.offset, SEEK_SET);
-		fread(data, in_sec.size, 1, f);
-		flags = 1<<SECTION_FLAG_INIT_DATA;
-		sec_rodata = backend_add_section(obj, 0, ".rodata", in_sec.size, in_sec.addr, data, in_sec.addralign, flags);
-		sec_lut[index] = sec_rodata;
-	}
-
-	index = elf64_find_section(f, h, ".text", section_strtab, &in_sec);
-	if (index >= 0)
-	{
-		unsigned long flags;
-		//printf("ELF: .text section has %lu bytes of data at offset 0x%lx\n", in_sec.size, in_sec.offset);
-		char* data = malloc(in_sec.size);
-		fseek(f, in_sec.offset, SEEK_SET);
-		fread(data, in_sec.size, 1, f);
-		//printf("Data: %02x %02x %02x %02x\n", data[0]&0xFF, data[1]&0xFF, data[2]&0xFF, data[3]&0xFF);
-		flags = 1<<SECTION_FLAG_CODE;
-		sec_text = backend_add_section(obj, 0, ".text", in_sec.size, in_sec.addr, data, in_sec.addralign, flags);
-		sec_lut[index] = sec_text;
-	}
-
-	index = elf64_find_section(f, h, ".got", section_strtab, &in_sec);
-	if (index >= 0)
-	{
-		unsigned long flags;
-		char* data = malloc(in_sec.size);
-		fseek(f, in_sec.offset, SEEK_SET);
-		fread(data, in_sec.size, 1, f);
-		flags = 0;
-		sec_got = backend_add_section(obj, 0, ".got", in_sec.size, in_sec.addr, data, in_sec.addralign, flags);
-		sec_lut[index] = sec_got;
-	}
-
-	// find and load the symbol string table
-	char* sym_strtab = NULL;
-	if (elf64_find_section(f, h, ".strtab", section_strtab, &in_sec) < 0)
-	{
-		printf("Warning: can't find string table\n");
+		printf("Can't find string table section!\n");
 		goto done;
 	}
 
-	sym_strtab = malloc(in_sec.size);
-	fseek(f, in_sec.offset, SEEK_SET);
-	fread(sym_strtab, in_sec.size, 1, f);
-
-	// load and add the symbols separately
-	if (elf64_find_section(f, h, ".symtab", section_strtab, &in_sec) < 0)
+	// create symbols
+	backend_section* sec_symtab = backend_get_section_by_name(obj, ".symtab");
+	if (!sec_symtab)
 	{
-		printf("Warning: can't find symbol table\n");
+		printf("Can't find symbol table section!\n");
 		goto done;
 	}
-	
-	elf64_symbol* symtab = malloc(in_sec.size);
-	fseek(f, in_sec.offset, SEEK_SET);
-	fread(symtab, in_sec.size, 1, f);
-
-	//printf("Symbol size: %lu vs %lu\n", in_sec.entsize, sizeof(elf64_symbol));
-	elf64_symbol* sym = NULL;
-	for (int i=0; i < in_sec.size/in_sec.entsize; i++)
+	elf64_symbol* sym = (elf64_symbol*)sec_symtab->data;
+	printf("Symbol table size: %i entry size: %i\n", sec_symtab->size, sec_symtab->entry_size);
+	for (int i=0; i < sec_symtab->size/sec_symtab->entry_size; i++)
 	{
-		sym = &symtab[i];
-		if (symtab[i].name)
+		if (sym->name)
 		{	
 			backend_section* sec;
-			char* name = sym_strtab + sym->name;
+			char* name = sec_strtab->data + sym->name;
 
 			// try to determine the section that this symbol belongs to
 			if (sym->section_index < 0 || sym->section_index == ELF_SECTION_ABS || sym->section_index == ELF_SECTION_COMMON)
@@ -576,13 +601,90 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 
 			backend_add_symbol(obj, name, sym->value, elf_to_backend_sym_type(sym->info), sym->size, 0, sec);
 		}
+		sym++;
 	}
-	free(symtab);
+
+	// since we are dealing with dynamic symbols, we will need access to the dynamic symbol table, dynamic string table and version tables
+	backend_section* sec_dynsym = backend_get_section_by_name(obj, ".dynsym");
+	if (!sec_dynsym)
+	{
+		printf("Can't find .dynsym\n");
+		goto done;
+	}
+
+	backend_section* sec_dynstr = backend_get_section_by_name(obj, ".dynstr");
+	if (!sec_dynstr)
+	{
+		printf("Can't find .dynstr\n");
+		goto done;
+	}
+
+	backend_section* sec_versym = backend_get_section_by_name(obj, ".gnu.version");
+	if (!sec_versym)
+	{
+		printf("Can't find .gnu.version\n");
+		goto done;
+	}
+
+	backend_section* sec_versymr = backend_get_section_by_name(obj, ".gnu.version_r");
+	if (!sec_versymr)
+	{
+		printf("Can't find .gnu.version_r\n");
+		goto done;
+	}
+
+	// create relocs (probably should load every section of type RELA, but lets just start with .rela.plt)
+	backend_section* sec_rela = backend_get_section_by_name(obj, ".rela.plt");
+	if (!sec_rela)
+	{
+		printf("Can't find PLT reloc section!\n");
+		goto done;
+	}
+
+	char sym_name[64];
+	elf64_rela* rela = (elf64_rela*)sec_rela->data;
+	elf64_symbol* dsym = (elf64_symbol*)sec_dynsym->data;
+	unsigned short* ver = (unsigned short*)sec_versym->data;
+	elf_verneed_header* versymr = (elf_verneed_header*)sec_versymr->data;
+	elf_verneed_entry* verent = (elf_verneed_entry*)(sec_versymr->data + versymr->aux);
+	for (int i=0; i < sec_rela->size/sec_rela->entry_size; i++)
+	{
+		// we must look up this symbol by index in the dynamic symbol table. Since all entries in the dynamic symbol table have
+		// duplicates in the main symbol table, we recover the name and use the name to find the symbol entry in the main table.
+		// This prevents us from having to keep two tables, which (at least at this point) is unnecessary.
+		unsigned long index = ELF_R_SYM(rela->info);
+
+		//printf("Getting dynsym index=%lu\n", index);
+		dsym += index;
+		//printf("dynsym @ %p dsym @ %p\n", sec_dynsym->data, dsym);
+		//printf("Found symbol name %s at offset %i\n", sec_dynstr->data + dsym->name, dsym->name);
+		strcpy(sym_name, sec_dynstr->data + dsym->name);
+		
+		// get the version number to look up the version string
+		ver += index;	
+		//printf("Version %u\n", *ver);
+		//printf("Ver: %i Count: %i File: %s\n", versymr->version, versymr->count, versymr->file + sec_dynstr->data);
+		//printf("Name: %s Flags: %i Version: %i\n", verent->name + sec_dynstr->data, verent->flags, verent->other);
+		if (*ver == verent->other)
+		{
+			// compose the name with the version
+			strcat(sym_name, "@@");
+			strcat(sym_name, verent->name + sec_dynstr->data);
+		}
+
+		// now the get corresponding symbol in the main table
+		backend_symbol* bs = backend_find_symbol_by_name(obj, sym_name);
+		//printf("Rela @ 0x%lx type: %lu sym: %lu (%s)\n", rela->addr, ELF_R_TYPE(rela->info), ELF_R_SYM(rela->info), bs?bs->name:NULL);
+		backend_add_relocation(obj, rela->addr, ELF_R_TYPE(rela->info), bs);
+		rela++;
+	}
+	
 
 done:
 	free(section_strtab);
-	free(sym_strtab);
 	free(sec_lut);
+
+	printf("ELF64 loading done (%i symbols, %i relocs)\n", backend_symbol_count(obj), backend_relocation_count(obj));
 
 	return obj;
 }
@@ -692,11 +794,10 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 	{
 		sh.addr = bs->address;
 		sh.size = bs->size;
-		//sh.addralign = bs->alignment;
+		sh.addralign = bs->alignment;
 		//printf("Using .text alignment= %i\n", sh.addralign);
 	}
 
-	// write the data if there is any
 	if (sh.size)
 	{
 		//printf("Writing data %i\n", sh.size);
@@ -708,6 +809,43 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 		fpos_data += sh.size;
 	}
 	strcpy(shstrtab_entry, ".text");
+	shstrtab_entry += strlen(shstrtab_entry) + 1;
+   fwrite(&sh, sizeof(elf64_section), 1, f);
+
+	// write the .rela section header
+	sh.name = shstrtab_entry - shstrtab;
+	sh.type = SHT_RELA;
+	sh.flags = (1<<SHF_INFO);
+	sh.offset = 0;
+	sh.link = SECTION_INDEX_SYMTAB; // which symbol table to use
+	sh.info = SECTION_INDEX_TEXT;
+	sh.entsize = sizeof(elf64_rela);
+	sh.addr = 0;
+	sh.size = backend_relocation_count(obj) * sizeof(elf64_rela);
+	sh.addralign = 8;
+
+	if (sh.size)
+	{
+		sh.offset = fpos_data;
+		fpos_cur = ftell(f);
+		fseek(f, sh.offset, SEEK_SET);
+		backend_reloc* r = backend_get_first_reloc(obj);
+		while (r)
+		{
+			elf64_rela rela;
+			rela.addr = r->addr;
+			printf("writing reloc for 0x%lx symbol: %s index %i\n", rela.addr, r->symbol->name, backend_get_symbol_index(obj, r->symbol));
+			unsigned int reloc_type = backend_to_elf_reloc_type(r->type);
+			rela.info = ELF_R_INFO(backend_get_symbol_index(obj, r->symbol)+2, reloc_type); // elf has 2 extra symbols at the beginning
+			//rela.info = ELF_R_INFO(0, reloc_type);
+			rela.addend = elf_reloc_addend(r->type);
+			fwrite(&rela, sizeof(elf64_rela), 1, f);
+			r = backend_get_next_reloc(obj);
+		}
+		fseek(f, fpos_cur, SEEK_SET);
+		fpos_data += sh.size;
+	}
+	strcpy(shstrtab_entry, ".rela.text");
 	shstrtab_entry += strlen(shstrtab_entry) + 1;
    fwrite(&sh, sizeof(elf64_section), 1, f);
 
@@ -828,7 +966,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 		fpos_data = (fpos_data + sh.addralign-1) & ~((unsigned long)sh.addralign-1);
 		sh.offset = fpos_data;
 		fpos_cur = ftell(f);
-		printf("We have %lu symbols\n", sh.size/sh.entsize);
+		//printf("We have %lu symbols\n", sh.size/sh.entsize);
 		fseek(f, sh.offset, SEEK_SET);
 		
 		// write an empty symbol first
@@ -891,7 +1029,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 		sh.offset = fpos_data;
 		fpos_cur = ftell(f);
 		fseek(f, sh.offset, SEEK_SET);
-		printf("Writing the strtab @ 0x%lx\n", sh.offset);
+		//printf("Writing the strtab @ 0x%lx\n", sh.offset);
 		fwrite(strtab, sh.size, 1, f);
 		fseek(f, fpos_cur, SEEK_SET);
 		fpos_data += sh.size;

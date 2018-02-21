@@ -602,8 +602,14 @@ static backend_object* pe_read_file(const char* filename)
          flags |= SECTION_FLAG_COMMENTS;
       if (secs[i].flags & SCN_LNK_REMOVE)
          flags |= SECTION_FLAG_DISCARDABLE;
+      if (secs[i].flags & SCN_MEM_EXECUTE)
+         flags |= SECTION_FLAG_EXECUTE;
+      if (secs[i].flags & SCN_MEM_READ)
+         flags |= SECTION_FLAG_READ;
+      if (secs[i].flags & SCN_MEM_WRITE)
+         flags |= SECTION_FLAG_WRITE;
 
-      backend_add_section(obj, i+1, strndup(secs[i].name, 8), secs[i].size_in_mem, secs[i].address, data, (secs[i].flags & SCN_ALIGN_MASK) >> SCN_ALIGN, flags);
+      backend_add_section(obj, i+1, strndup(secs[i].name, 8), secs[i].size_in_mem, secs[i].address, data, 0, (secs[i].flags & SCN_ALIGN_MASK) >> SCN_ALIGN, flags);
    }
 
    // read the symbol table

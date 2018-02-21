@@ -71,13 +71,7 @@ backend_type backend_lookup_target(const char* name)
 
 backend_object* backend_create(void)
 {
-   backend_object* obj = malloc(sizeof(backend_object));
-   if (obj)
-   {
-      obj->type = OBJECT_TYPE_NONE;
-      obj->section_table = NULL;
-      obj->symbol_table = NULL;
-   }
+   backend_object* obj = calloc(1, sizeof(backend_object));
    return obj;
 }
 
@@ -132,7 +126,7 @@ void backend_set_address(backend_object* obj, unsigned long addr)
 
 unsigned int backend_symbol_count(backend_object* obj)
 {
-   if (obj->symbol_table)
+   if (obj && obj->symbol_table)
       return ll_size(obj->symbol_table);
    else
       return 0;
@@ -171,6 +165,78 @@ backend_symbol* backend_get_next_symbol(backend_object* obj)
       return obj->iter_symbol->val;
    return NULL;
 }
+
+backend_symbol* backend_find_symbol_by_val(backend_object* obj, unsigned long val)
+{
+	backend_symbol* bs;
+
+   if (!obj->symbol_table)
+      return NULL;
+
+   for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
+	{
+		bs = iter->val;
+		if (bs->val == val)
+			return bs;
+	}
+
+	return NULL;
+}
+
+backend_symbol* backend_find_symbol_by_name(backend_object* obj, const char* name)
+{
+	backend_symbol* bs;
+
+   if (!obj || !obj->symbol_table)
+      return NULL;
+
+   for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
+	{
+		bs = iter->val;
+		if (strcmp(bs->name, name) == 0)
+			return bs;
+	}
+
+	return NULL;
+}
+
+backend_symbol* backend_find_symbol_by_index(backend_object* obj, unsigned int index)
+{
+   if (!obj || !obj->symbol_table)
+      return NULL;
+
+   const list_node* iter=ll_iter_start(obj->symbol_table);
+	for (unsigned int i=0; i < index; i++)
+	{
+		if (!iter)
+			return NULL;
+		iter=iter->next;
+	}
+	if (iter)
+		return iter->val;
+
+	return NULL;
+}
+
+unsigned int backend_get_symbol_index(backend_object* obj, backend_symbol* s)
+{
+	unsigned int count = 0;
+
+   if (!obj || !obj->symbol_table || !s)
+      return (unsigned int)-1;
+
+	printf("+ %s\n", s->name);
+   for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
+	{
+		printf("** %s\n", ((backend_symbol*)(iter->val))->name);
+		if (iter->val == s)
+			return count;
+		count++;
+	}
+
+	return (unsigned int)-1;
+}
+
 ///////////////////////////////////////////
 unsigned int backend_section_count(backend_object* obj)
 {
@@ -182,7 +248,7 @@ unsigned int backend_section_count(backend_object* obj)
    return ll_size(obj->section_table);
 }
 
-backend_section* backend_add_section(backend_object* obj, unsigned int index, char* name, unsigned long size, unsigned long address, char* data, unsigned int alignment, unsigned long flags)
+backend_section* backend_add_section(backend_object* obj, unsigned int index, char* name, unsigned long size, unsigned long address, char* data, unsigned int entry_size, unsigned int alignment, unsigned long flags)
 {
    if (!obj->section_table)
       obj->section_table = ll_init();
@@ -195,9 +261,10 @@ backend_section* backend_add_section(backend_object* obj, unsigned int index, ch
    s->size = size;
    s->address = address;
    s->flags = flags;
+	s->entry_size = entry_size;
    s->data = data;
 	s->alignment = alignment;
-   //printf("Adding section %s size:%i address:0x%x flags:0x%x\n", s->name, s->size, s->address, s->flags);
+   //printf("Adding section %s size:%i address:0x%lx entry size: %i flags:0x%x alignment %i\n", s->name, s->size, s->address, s->entry_size, s->flags, s->alignment);
    ll_add(obj->section_table, s);
    //printf("There are %i sections\n", backend_section_count(obj));
    return s;
@@ -251,9 +318,6 @@ void backend_destructor(backend_object* obj)
    // destroy the symbol table
    if (obj->symbol_table)
    {
-		//printf("has symbol table with %i symbols\n", backend_symbol_count(obj));
-		backend_symbol *a = backend_get_first_symbol(obj);
-		//printf("first symbol is: %s\n", a->name);
       backend_symbol* s = ll_pop(obj->symbol_table);
       while (s)
       {
@@ -264,6 +328,86 @@ void backend_destructor(backend_object* obj)
       }
    }
 
+	if (obj->section_table)
+   {
+      backend_section* sec = ll_pop(obj->section_table);
+		while (sec)
+		{
+         free(sec->name);
+         free(sec->data);
+			free(sec);
+			sec = ll_pop(obj->section_table);
+		}
+   }
+
+   if (obj->relocation_table)
+   {
+		backend_reloc* r = ll_pop(obj->relocation_table);
+		while (r)
+		{
+			free(r);
+			r = ll_pop(obj->relocation_table);
+		}
+	}
+
    // and finally the object itself
    free(obj);
 }
+
+///////////////////////////////////////////
+unsigned int backend_relocation_count(backend_object* obj)
+{
+   if (obj && obj->relocation_table)
+		return ll_size(obj->relocation_table);
+   else
+		return 0;
+}
+
+int backend_add_relocation(backend_object* obj, unsigned long addr, backend_reloc_type t, backend_symbol* bs)
+{
+   if (!obj)
+		return -1;
+
+	printf("add relocation for %s\n", bs->name);
+   if (!obj->relocation_table)
+      obj->relocation_table = ll_init();
+
+   backend_reloc* r = malloc(sizeof(backend_reloc));
+	r->addr = addr;
+   r->type = t;
+	r->symbol = bs;
+   ll_add(obj->relocation_table, r);
+   return 0;
+}
+
+backend_reloc* backend_find_reloc_by_val(backend_object* obj, unsigned long val)
+{
+	if (!obj || !obj->relocation_table)
+		return NULL;
+
+   for (const list_node* iter=ll_iter_start(obj->relocation_table); iter != NULL; iter=iter->next)
+   {
+      backend_reloc* rel = iter->val;
+		if (rel->addr == val)
+			return rel;
+	}
+
+	return NULL;
+}
+
+backend_reloc* backend_get_first_reloc(backend_object* obj)
+{
+	if (!obj || !obj->relocation_table)
+		return NULL;
+	obj->iter_reloc = ll_iter_start(obj->relocation_table);
+	return obj->iter_reloc->val;
+}
+
+backend_reloc* backend_get_next_reloc(backend_object* obj)
+{
+   obj->iter_reloc = obj->iter_reloc->next; 
+   if (obj->iter_reloc)
+      return obj->iter_reloc->val;
+   return NULL;
+}
+

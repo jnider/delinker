@@ -20,7 +20,8 @@ enum error_codes
    ERR_BAD_FORMAT,
    ERR_NO_SYMS,
    ERR_NO_SYMS_AFTER_RECONSTRUCT,
-   ERR_NO_TEXT_SECTION
+   ERR_NO_TEXT_SECTION,
+   ERR_NO_PLT_SECTION
 };
 
 static struct option options[] =
@@ -153,6 +154,191 @@ static int fixup_function_data(backend_object* obj)
 	return 0;
 }
 
+static int decode_plt_entry(backend_object* obj, backend_section* sec_plt, int plt_addr, int* symbol_addr)
+{
+	ud_t ud_obj;
+
+	ud_init(&ud_obj);
+
+	*symbol_addr = 0;
+
+	// make sure we are using the right decoder
+	backend_type t = backend_get_type(obj);
+	if (t == OBJECT_TYPE_ELF32 || t == OBJECT_TYPE_PE32)
+		ud_set_mode(&ud_obj, 32); // decode in 32 bit mode
+	else if (t == OBJECT_TYPE_ELF64)
+		ud_set_mode(&ud_obj, 64);
+
+	// find the right entry
+	int entry = (plt_addr - sec_plt->address) / 0x10;
+	//printf("symbol points to PLT entry %i\n", entry);
+
+	// decode that entry
+	enum ud_mnemonic_code mnem;
+	unsigned bytes;
+	ud_set_input_buffer(&ud_obj, sec_plt->data + (plt_addr - sec_plt->address), 0x10);
+	bytes = ud_disassemble(&ud_obj);
+	mnem = ud_insn_mnemonic(&ud_obj);
+	if (mnem != UD_Ijmp)
+	{
+		printf("PLT instruction is not jump\n");
+		return -1;
+	}
+
+	const struct ud_operand* op = ud_insn_opr(&ud_obj, 0);
+	if (!op)
+		return -2;
+
+	//printf("%lx: %s\n", plt_addr, ud_lookup_mnemonic(mnem));
+	//printf("OP: %lx %lx %lx\n", op->lval.sdword, plt_addr, bytes);
+	
+	*symbol_addr = op->lval.sdword + plt_addr + bytes;
+	return 0;
+}
+						
+static int build_relocations(backend_object* obj)
+{
+	ud_t ud_obj;
+
+	ud_init(&ud_obj);
+
+   /* find the text section */
+   backend_section* sec_text = backend_get_section_by_name(obj, ".text");
+   if (!sec_text)
+      return -ERR_NO_TEXT_SECTION;
+
+   backend_section* sec_plt = backend_get_section_by_name(obj, ".plt");
+   if (!sec_plt)
+      return -ERR_NO_PLT_SECTION;
+
+	// make sure we are using the right decoder
+	backend_type t = backend_get_type(obj);
+	if (t == OBJECT_TYPE_ELF32 || t == OBJECT_TYPE_PE32)
+		ud_set_mode(&ud_obj, 32); // decode in 32 bit mode
+	else if (t == OBJECT_TYPE_ELF64)
+		ud_set_mode(&ud_obj, 64);
+
+	unsigned bytes;
+	ud_set_input_buffer(&ud_obj, sec_text->data, sec_text->size);
+	//printf("Disassembling from 0x%lx to 0x%lx\n", sec_text->address, sec_text->address + sec_text->size);
+	while (bytes = ud_disassemble(&ud_obj))
+	{
+		enum ud_mnemonic_code mnem;
+		mnem = ud_insn_mnemonic(&ud_obj);
+		long addr = ud_insn_off(&ud_obj);
+
+		// loading a data address is a mov instruction with a 32-bit immediate
+		if (mnem == UD_Imov && bytes == 7)
+		{
+			//printf("0x%lx: %s %u\n", addr, ud_lookup_mnemonic(mnem), bytes);
+			const char* buff = ud_insn_ptr(&ud_obj);
+			const struct ud_operand* op = ud_insn_opr(&ud_obj, 1);
+			if (op->type == UD_OP_IMM)
+			{
+				unsigned int val = op->lval.udword;
+				//printf("op 1 is immediate 0x%x\n", val);
+				backend_symbol *bs = backend_find_symbol_by_val(obj, val);
+				if (!bs)
+				{
+					printf("Mov: can't resolve symbol @ 0x%x\n", val);
+					continue;
+				}
+
+				// add a relocation
+				//printf("Resolves to %s\n", bs->name);
+				//backend_add_relocation(obj, val, RELOC_TYPE_OFFSET, bs);
+			}
+			//printf("ops: %s <- %s\n", ud_lookup_opr_type(ud_insn_opr(&ud_obj, 0)),
+			//	ud_lookup_opr_type(ud_insn_opr(&ud_obj, 1)));
+		}
+		else if (mnem == UD_Ijmp)
+		{
+			//printf("0x%lx: %s %u\n", addr + sec_text->address, ud_lookup_mnemonic(mnem), bytes);
+		}
+
+		// callq calls a function with 1 byte opcode and signed 32-bit relative offset
+		else if (mnem == UD_Icall && bytes == 5)
+		{
+			int val;
+			const struct ud_operand* op = ud_insn_opr(&ud_obj, 0);
+			//printf("Op type: %s\n", ud_lookup_opr_type(op));
+			if (!op || op->type != UD_OP_JIMM)
+				continue;
+			val = addr + sec_text->address + op->lval.sdword + bytes;
+			//printf("0x%lx: %s %i (%u)\n", addr + sec_text->address, ud_lookup_mnemonic(mnem), op->lval.sdword, bytes);
+			backend_symbol *bs = backend_find_symbol_by_val(obj, val);
+			if (!bs)
+			{
+				if (val < sec_plt->address || val >= sec_plt->address + sec_plt->size)
+				{
+					printf("Call: can't resolve symbol @ 0x%lx\n", (unsigned long)val);
+					continue;
+				}
+
+				if (decode_plt_entry(obj, sec_plt, val, &val) == 0)
+				{
+					//printf("Address 0x%x recovered from PLT - looking for a matching reloc\n", val);
+					// now we have to find the symbol name to be able to create a relocation
+					backend_reloc* rel = backend_find_reloc_by_val(obj, val);
+					if (!rel)
+						continue;
+					bs = rel->symbol;
+					//printf("Found symbol %s in a relocation\n", bs->name);
+				}
+			}
+
+			backend_add_relocation(obj, val, RELOC_TYPE_PC_RELATIVE, bs);
+		}
+
+	}
+}
+
+// We set up relocations in the source file when it is read in, since that is when we have all of the relevant
+// information available. Once the symbols & code are divided into separate object files, it is much harder to
+// reconcile jumps between various files since the base addresses are all reset to 0. That means when we write
+// out the individual object files, we must copy any relevant relocation information that was set up in the
+// input file.
+static int copy_relocations(backend_object* src, backend_object* dest)
+{
+	backend_symbol *sym;
+
+	// copy the relocations to the output object, and match the symbols to the output symbol table
+	backend_reloc* r = backend_get_first_reloc(src);
+	while (r)
+	{
+		if (!r->symbol)
+		{
+			//printf("can't find symbol in source file - skipping relocation\n");
+			sym = NULL;
+			r = backend_get_next_reloc(src);
+			continue;
+		}
+
+		// if this symbol doesn't exist in the output file, we don't need the relocation information for it
+		sym = backend_find_symbol_by_name(dest, r->symbol->name);
+		if (!sym)
+		{
+			//printf("can't find symbol %s in output file\n", r->symbol->name);
+			r = backend_get_next_reloc(src);
+			continue;
+		}
+		if (!r->symbol->section)
+		{
+			printf("Input symbol %s doesn't have an associated section\n", r->symbol->name);
+			backend_add_relocation(dest, r->addr, r->type, sym);
+			r = backend_get_next_reloc(src);
+			continue;
+		}
+		
+		//printf("Base address: 0x%lx\n", r->symbol->section->address);
+		backend_add_relocation(dest, r->addr - r->symbol->section->address, r->type, sym);
+		r = backend_get_next_reloc(src);
+	}
+
+	printf("Output file has %u relocations\n", backend_relocation_count(dest));
+	return 0;
+}
+
 static int
 unlink_file(const char* input_filename, backend_type output_target)
 {
@@ -173,6 +359,10 @@ unlink_file(const char* input_filename, backend_type output_target)
             return -ERR_NO_SYMS_AFTER_RECONSTRUCT;
       }
    }
+
+	// convert any absolute addresses into symbols (loads of data, calls of functions, etc.)
+	// make sure any relative jumps are still accurate
+	build_relocations(obj);
 
    // if the output target is not specified, use the input target
 	if (output_target == OBJECT_TYPE_NONE)
@@ -219,7 +409,8 @@ unlink_file(const char* input_filename, backend_type output_target)
          if (oo)
          {
             //printf("Closing existing file %s\n", output_filename);
-				fixup_function_data(oo);
+				copy_relocations(obj, oo);
+				//fixup_function_data(oo);
             if (backend_write(oo, output_filename))
 					printf("error writing file\n");
             backend_destructor(oo);
@@ -242,7 +433,7 @@ unlink_file(const char* input_filename, backend_type output_target)
          //printf("Got section %s\n", sym->name);
          bs = backend_get_section_by_name(obj, sym->name);
          //printf("Found matching input section\n");
-         backend_add_section(oo, 0, strdup(bs->name), 0, bs->address, NULL, bs->alignment, bs->flags);
+         backend_add_section(oo, 0, strdup(bs->name), 0, bs->address, NULL, 0, bs->alignment, bs->flags);
          break;
 
       case SYMBOL_TYPE_FUNCTION:
@@ -261,11 +452,14 @@ unlink_file(const char* input_filename, backend_type output_target)
 				char* data=NULL;
 				//printf("no text section found - creating\n");
 				//printf("Symbol %s points to section %s\n", sym->name, sym->section->name);
+
+				// copy the code to the output object
 				size = sym->section->size;
 				data = malloc(size);
 				memcpy(data, sym->section->data, size);
 				//printf("Data: %02x %02x %02x %02x\n", data[0]&0xFF, data[1]&0xFF, data[2]&0xFF, data[3]&0xFF);
-        		sec_text = backend_add_section(oo, 0, strdup(".text"), size, 0, data, 2, SECTION_FLAG_CODE);
+        		sec_text = backend_add_section(oo, 0, strdup(".text"), size, 0, data, 0, 2, SECTION_FLAG_CODE);
+
 			}
 
 			// set the base address of functions to 0
@@ -282,7 +476,7 @@ unlink_file(const char* input_filename, backend_type output_target)
 				type = SYMBOL_TYPE_NONE;
 			}
 
-         printf("Function %s @ 0x%lx + 0x%lx\n", sym->name, base, sym->val-base);
+         printf("Found function %s @ 0x%lx + 0x%lx\n", sym->name, base, sym->val-base);
          // set the base address of all instructions referencing memory to 0
 
          // add function symbols to the output symbol table
@@ -296,7 +490,8 @@ unlink_file(const char* input_filename, backend_type output_target)
    if (oo)
    {
    	//printf("Writing file %s\n", output_filename);
-		fixup_function_data(oo);
+		copy_relocations(obj, oo);
+		//fixup_function_data(oo);
       if (backend_write(oo, output_filename))
 			printf("Error writing file\n");
       backend_destructor(oo);
