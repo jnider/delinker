@@ -69,7 +69,7 @@ typedef struct backend_section
    char* name;
    unsigned int size;
    unsigned long address;	// base address for loading this section
-   unsigned int flags; // see SECTION_FLAGS_
+   unsigned int flags; // see SECTION_FLAG_
    char* data;
    unsigned int alignment; // 2**x
 	unsigned int entry_size;
@@ -79,7 +79,7 @@ typedef struct backend_symbol
 {
    char* name;
    unsigned long val;
-   backend_symbol_type type;
+   backend_symbol_type type; // see SYMBOL_TYPE_
    unsigned int flags; // see SYMBOL_FLAGS_
 	unsigned long size;
    backend_section* section;
@@ -87,7 +87,7 @@ typedef struct backend_symbol
 
 typedef struct backend_reloc
 {
-	unsigned long addr;
+	unsigned long offset;
 	backend_reloc_type type;
 	backend_symbol* symbol;
 } backend_reloc;
@@ -134,7 +134,7 @@ void backend_set_entry_point(backend_object* obj, unsigned long addr);
 
 // symbols
 unsigned int backend_symbol_count(backend_object* obj);
-int backend_add_symbol(backend_object* obj, const char* name, unsigned long val, backend_symbol_type type, unsigned long size, unsigned int flags, backend_section* sec);
+backend_symbol* backend_add_symbol(backend_object* obj, const char* name, unsigned long val, backend_symbol_type type, unsigned long size, unsigned int flags, backend_section* sec);
 backend_symbol* backend_get_first_symbol(backend_object* obj);
 backend_symbol* backend_get_next_symbol(backend_object* obj);
 backend_symbol* backend_find_symbol_by_val(backend_object* obj, unsigned long val);
@@ -152,7 +152,7 @@ backend_section* backend_get_next_section(backend_object* obj);
 
 // relocations
 unsigned int backend_relocation_count(backend_object* obj);
-int backend_add_relocation(backend_object* obj, unsigned long addr, backend_reloc_type t, backend_symbol* bs);
-backend_reloc* backend_find_reloc_by_val(backend_object* obj, unsigned long val);
+int backend_add_relocation(backend_object* obj, unsigned long offset, backend_reloc_type t, backend_symbol* bs);
+backend_reloc* backend_find_reloc_by_offset(backend_object* obj, unsigned long val);
 backend_reloc* backend_get_first_reloc(backend_object* obj);
 backend_reloc* backend_get_next_reloc(backend_object* obj);

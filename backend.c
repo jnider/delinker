@@ -61,8 +61,8 @@ backend_type backend_lookup_target(const char* name)
 	// iterate through all known backends, comparing the string. When we find a match, convert the name to the correct type
    for (int i=0; i < num_backends; i++)
    {
-		printf("Looking up %i\n", i);
-		printf("Found backend %s\n", backend[i]->name());
+		//printf("Looking up %i\n", i);
+		//printf("Found backend %s\n", backend[i]->name());
       if (backend[i]->name && strcmp(backend[i]->name(), name) == 0)
 			return backend[i]->format();
    }
@@ -77,7 +77,7 @@ backend_object* backend_create(void)
 
 backend_object* backend_read(const char* filename)
 {
-   printf("backend_read\n");
+   //printf("backend_read\n");
    // run through all backends until we find one that recognizes the format and returns an object
    for (int i=0; i < num_backends; i++)
    {
@@ -132,7 +132,7 @@ unsigned int backend_symbol_count(backend_object* obj)
       return 0;
 }
 
-int backend_add_symbol(backend_object* obj, const char* name, unsigned long val, backend_symbol_type type, unsigned long size, unsigned int flags, backend_section* sec)
+backend_symbol* backend_add_symbol(backend_object* obj, const char* name, unsigned long val, backend_symbol_type type, unsigned long size, unsigned int flags, backend_section* sec)
 {
    if (!obj->symbol_table)
       obj->symbol_table = ll_init();
@@ -147,7 +147,7 @@ int backend_add_symbol(backend_object* obj, const char* name, unsigned long val,
    //printf("Adding %s type=%i size=%lu val=0x%lx\n", s->name, s->type, s->size, s->val);
    ll_add(obj->symbol_table, s);
    //printf("There are %i symbols\n", backend_symbol_count(obj));
-   return 0;
+   return s;
 }
 
 backend_symbol* backend_get_first_symbol(backend_object* obj)
@@ -176,6 +176,7 @@ backend_symbol* backend_find_symbol_by_val(backend_object* obj, unsigned long va
    for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
 	{
 		bs = iter->val;
+		//printf("** %s 0x%lx\n", bs->name, bs->val);
 		if (bs->val == val)
 			return bs;
 	}
@@ -225,10 +226,10 @@ unsigned int backend_get_symbol_index(backend_object* obj, backend_symbol* s)
    if (!obj || !obj->symbol_table || !s)
       return (unsigned int)-1;
 
-	printf("+ %s\n", s->name);
+	//printf("+ %s\n", s->name);
    for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
 	{
-		printf("** %s\n", ((backend_symbol*)(iter->val))->name);
+		//printf("** %s\n", ((backend_symbol*)(iter->val))->name);
 		if (iter->val == s)
 			return count;
 		count++;
@@ -257,7 +258,8 @@ backend_section* backend_add_section(backend_object* obj, unsigned int index, ch
 	if (!s)
 		return NULL;
 
-   s->name = name;
+	s->index = index;
+   s->name = strdup(name);
    s->size = size;
    s->address = address;
    s->flags = flags;
@@ -275,6 +277,7 @@ backend_section* backend_get_section_by_index(backend_object* obj, unsigned int 
    for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
    {
       backend_section* sec = iter->val;
+		//printf("++ %i %s\n", sec->index, sec->name);
       if (sec->index == index)
          return sec;
    }
@@ -363,24 +366,24 @@ unsigned int backend_relocation_count(backend_object* obj)
 		return 0;
 }
 
-int backend_add_relocation(backend_object* obj, unsigned long addr, backend_reloc_type t, backend_symbol* bs)
+int backend_add_relocation(backend_object* obj, unsigned long offset, backend_reloc_type t, backend_symbol* bs)
 {
    if (!obj)
 		return -1;
 
-	printf("add relocation for %s\n", bs->name);
+	//printf("add relocation for %s @ 0x%lx sec=%s\n", bs->name, addr, sec?sec->name:NULL);
    if (!obj->relocation_table)
       obj->relocation_table = ll_init();
 
    backend_reloc* r = malloc(sizeof(backend_reloc));
-	r->addr = addr;
+	r->offset = offset;
    r->type = t;
 	r->symbol = bs;
    ll_add(obj->relocation_table, r);
    return 0;
 }
 
-backend_reloc* backend_find_reloc_by_val(backend_object* obj, unsigned long val)
+backend_reloc* backend_find_reloc_by_offset(backend_object* obj, unsigned long offset)
 {
 	if (!obj || !obj->relocation_table)
 		return NULL;
@@ -388,7 +391,7 @@ backend_reloc* backend_find_reloc_by_val(backend_object* obj, unsigned long val)
    for (const list_node* iter=ll_iter_start(obj->relocation_table); iter != NULL; iter=iter->next)
    {
       backend_reloc* rel = iter->val;
-		if (rel->addr == val)
+		if (rel->offset == offset)
 			return rel;
 	}
 
