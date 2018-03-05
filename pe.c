@@ -609,7 +609,7 @@ static backend_object* pe_read_file(const char* filename)
       if (secs[i].flags & SCN_MEM_WRITE)
          flags |= SECTION_FLAG_WRITE;
 
-      backend_add_section(obj, i+1, strndup(secs[i].name, 8), secs[i].size_in_mem, secs[i].address, data, 0, (secs[i].flags & SCN_ALIGN_MASK) >> SCN_ALIGN, flags);
+      backend_add_section(obj, strndup(secs[i].name, 8), secs[i].size_in_mem, secs[i].address, data, 0, (secs[i].flags & SCN_ALIGN_MASK) >> SCN_ALIGN, flags);
    }
 
    // read the symbol table
@@ -782,7 +782,7 @@ static int coff_write_file(backend_object* obj, const char* filename)
       symbol s;
       memcpy(s.name.str, sym->name, 8);
       s.val = sym->val;
-      s.section = sym->section->index;
+      //JKN - fix this. it should call backend_get_section_index() s.section = sym->section->index;
       s.auxsymbols = 0;
       switch (sym->type)
       {
@@ -924,7 +924,7 @@ static int pe32_write_file(backend_object* obj, const char* filename)
 		char tmp[19];
       symbol s;
       s.val = sym->val;
-      s.section = sym->section->index;
+      //JKN - fix this. it should call backend_get_section_index() s.section = sym->section->index;
       s.auxsymbols = 0;
       switch (sym->type)
       {
