@@ -65,7 +65,7 @@ typedef enum backend_reloc_type
 
 typedef struct backend_section
 {
-   unsigned int index;
+//   unsigned int index;
    char* name;
    unsigned int size;
    unsigned long address;	// base address for loading this section
@@ -73,6 +73,8 @@ typedef struct backend_section
    char* data;
    unsigned int alignment; // 2**x
 	unsigned int entry_size;
+////// private data ///////
+	int _name;					// used to hold the index into the string table when writing
 } backend_section;
 
 typedef struct backend_symbol
@@ -141,12 +143,14 @@ backend_symbol* backend_find_symbol_by_val(backend_object* obj, unsigned long va
 backend_symbol* backend_find_symbol_by_name(backend_object* obj, const char* name);
 backend_symbol* backend_find_symbol_by_index(backend_object* obj, unsigned int index);
 unsigned int backend_get_symbol_index(backend_object* obj, backend_symbol* s); // if the symbol table were to be serialized, what would be the index of this symbol in the table?
+int backend_remove_symbol_by_name(backend_object* obj, const char* name);
 
 // sections
 unsigned int backend_section_count(backend_object* obj);
-backend_section* backend_add_section(backend_object* obj, unsigned int index, char* name, unsigned long size, unsigned long address, char* data, unsigned int entry_size, unsigned int alignment, unsigned long flags);
+backend_section* backend_add_section(backend_object* obj, char* name, unsigned long size, unsigned long address, char* data, unsigned int entry_size, unsigned int alignment, unsigned long flags);
 backend_section* backend_get_section_by_index(backend_object* obj, unsigned int index);
 backend_section* backend_get_section_by_name(backend_object* obj, const char* name);
+int backend_get_section_index_by_name(backend_object* obj, const char* name);
 backend_section* backend_get_first_section(backend_object* obj);
 backend_section* backend_get_next_section(backend_object* obj);
 

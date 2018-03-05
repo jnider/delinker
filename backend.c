@@ -238,18 +238,44 @@ unsigned int backend_get_symbol_index(backend_object* obj, backend_symbol* s)
 	return (unsigned int)-1;
 }
 
+static int cmp_by_name(void* a, const void* b)
+{
+	backend_symbol* s = a;
+	const char* name = b;
+	return strcmp(s->name, name);
+}
+
+int backend_remove_symbol_by_name(backend_object* obj, const char* name)
+{
+	backend_symbol* bs;
+
+   if (!obj || !obj->symbol_table)
+      return -1;
+
+	bs = ll_remove(obj->symbol_table, name, cmp_by_name);
+	if (bs)
+	{
+		printf("removing symbol %s\n", bs->name);
+		free(bs->name);
+		free(bs);
+		return 0;
+	}
+
+	return -2;
+}
+
 ///////////////////////////////////////////
 unsigned int backend_section_count(backend_object* obj)
 {
    if (!obj->section_table)
    {
-      printf("No generic section table\n");
+      //printf("No section table yet\n");
       return 0;
    }
    return ll_size(obj->section_table);
 }
 
-backend_section* backend_add_section(backend_object* obj, unsigned int index, char* name, unsigned long size, unsigned long address, char* data, unsigned int entry_size, unsigned int alignment, unsigned long flags)
+backend_section* backend_add_section(backend_object* obj, char* name, unsigned long size, unsigned long address, char* data, unsigned int entry_size, unsigned int alignment, unsigned long flags)
 {
    if (!obj->section_table)
       obj->section_table = ll_init();
@@ -258,7 +284,9 @@ backend_section* backend_add_section(backend_object* obj, unsigned int index, ch
 	if (!s)
 		return NULL;
 
-	s->index = index;
+	//s->index = index;
+	//if (index == 0)
+	//	s->index = ll_size(obj->section_table) + 1; // index number is 1-based
    s->name = strdup(name);
    s->size = size;
    s->address = address;
@@ -274,11 +302,12 @@ backend_section* backend_add_section(backend_object* obj, unsigned int index, ch
 
 backend_section* backend_get_section_by_index(backend_object* obj, unsigned int index)
 {
+	int i=1;
    for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
    {
       backend_section* sec = iter->val;
 		//printf("++ %i %s\n", sec->index, sec->name);
-      if (sec->index == index)
+      if (i++ == index)
          return sec;
    }
    return NULL;
@@ -297,6 +326,23 @@ backend_section* backend_get_section_by_name(backend_object* obj, const char* na
          return sec;
    }
    return NULL;
+}
+
+int backend_get_section_index_by_name(backend_object* obj, const char* name)
+{
+	int index = 0;
+
+	if (!obj || !name || !obj->section_table)
+		return -1;
+
+   for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
+   {
+      backend_section* sec = iter->val;
+      if (!strcmp(name, sec->name))
+         return index+1;
+		index++;
+   }
+   return -1;
 }
 
 backend_section* backend_get_first_section(backend_object* obj)
