@@ -123,6 +123,8 @@ typedef struct backend_ops
 int backend_init(void); /* initialize the library for use - don't call any functions before this one */
 void backend_register(backend_ops* be); /* register specific backend implementation so it is known to the library */
 backend_type backend_lookup_target(const char* name); /* given a string, find a backend that understands the type and convert to a known value to later be used with backend_set_type() */
+const char* backend_get_first_target(void);
+const char* backend_get_next_target(void);
 
 // general
 backend_object* backend_create(void); /* the constructor - make an empty backend object */

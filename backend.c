@@ -23,10 +23,13 @@ static backend_init_func backend_table[] =
 static int num_backends;
 static backend_ops* backend[BACKEND_COUNT] = {0};
 
+static int backend_iter;
+
 int backend_init(void)
 {
-	int i;
-	for (i=0; i < BACKEND_COUNT; i++)
+	// here we use the macro BACKEND_COUNT to know how many backends exist. This is different
+	// from num_backends which is how many backends have been registered (initialized successfully).
+	for (int i=0; i < BACKEND_COUNT; i++)
 	{
 		if (BACKEND_INIT(i))
 			BACKEND_INIT(i)();
@@ -67,6 +70,24 @@ backend_type backend_lookup_target(const char* name)
 			return backend[i]->format();
    }
    return OBJECT_TYPE_NONE;
+}
+
+const char* backend_get_first_target(void)
+{
+	backend_iter = 0;
+
+	if (num_backends == 0)
+		return NULL;
+
+	return backend[backend_iter++]->name();
+}
+
+const char* backend_get_next_target(void)
+{
+	if (backend_iter < num_backends)
+		return backend[backend_iter++]->name();
+
+	return NULL;
 }
 
 backend_object* backend_create(void)

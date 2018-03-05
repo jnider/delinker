@@ -41,7 +41,14 @@ usage(void)
 {
    fprintf(stderr, "Unlinker performs the opposite action to 'ld'. It accepts a binary executable as input, and\n");
    fprintf(stderr, "creates a set of .o files that can be relinked.\n");
-   fprintf(stderr, "unlinker <input file>\n");
+   fprintf(stderr, "unlinker <input file>\n\n\n");
+   fprintf(stderr, "Supported backend targets:\n");
+	const char* t = backend_get_first_target();
+	while (t)
+	{
+		fprintf(stderr, "%s\n", t);
+		t = backend_get_next_target();
+	}
 }
 
 // make sure all function symbols are in increasing order, without any overlaps
@@ -708,6 +715,9 @@ main (int argc, char *argv[])
    char *input_filename = NULL;
    char *output_target = NULL;
 
+	// we have to initialize the backends early so we can print out the names in usage()
+   backend_init();
+
    if (argc < 2)
    {
       usage();
@@ -740,8 +750,6 @@ main (int argc, char *argv[])
    }
 
    input_filename = argv[optind];
-
-   backend_init();
 
    int ret = unlink_file(input_filename, backend_lookup_target(output_target));
    switch (ret)
