@@ -36,6 +36,36 @@ void ll_add(linked_list* ll, void* val)
    ll->count++;
 }
 
+void* ll_remove(linked_list* ll, const void* data, ll_cmpfunc cmp)
+{
+   if (!(ll->head))
+		return NULL;
+
+	// are we deleting the head node?
+	list_node* tmp = ll->head;
+	if (cmp(tmp->val, data) == 0)
+	{
+		ll->head = tmp->next;
+		ll->count--;
+		return tmp->val;
+	}
+
+	// check the rest of the list
+	while (tmp->next)
+	{
+		list_node* del = tmp->next;
+		if (cmp(del->val, data) == 0)
+		{
+			tmp = del->next;
+			ll->count--;
+			return del->val;
+		}
+		tmp = tmp->next;
+	}
+
+	return NULL;
+}
+
 void* ll_pop(linked_list* ll)
 {
 	if (!ll || !ll->head)
