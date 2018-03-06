@@ -403,6 +403,7 @@ void backend_destructor(backend_object* obj)
          free(s);
          s = ll_pop(obj->symbol_table);
       }
+		free(obj->symbol_table);
    }
 
 	if (obj->section_table)
@@ -415,6 +416,7 @@ void backend_destructor(backend_object* obj)
 			free(sec);
 			sec = ll_pop(obj->section_table);
 		}
+		free(obj->section_table);
    }
 
    if (obj->relocation_table)
@@ -425,6 +427,28 @@ void backend_destructor(backend_object* obj)
 			free(r);
 			r = ll_pop(obj->relocation_table);
 		}
+		free(obj->relocation_table);
+	}
+
+	if (obj->import_table)
+	{
+		backend_import* i = ll_pop(obj->import_table);
+		while (i)
+		{
+			if (i->symbols)
+			{
+				backend_symbol* s = ll_pop(i->symbols);
+				while (s)
+				{
+					free(s->name);
+					free(s);
+					s = ll_pop(i->symbols);
+				}
+				free(i->symbols);
+			}
+			i = ll_pop(obj->import_table);
+		}
+		free(obj->import_table);
 	}
 
    // and finally the object itself
@@ -486,5 +510,40 @@ backend_reloc* backend_get_next_reloc(backend_object* obj)
    if (obj->iter_reloc)
       return obj->iter_reloc->val;
    return NULL;
+}
+
+///////////////////////////////////////////
+backend_import* backend_add_import_module(backend_object* obj, const char* name)
+{
+   if (!obj)
+		return NULL;
+
+   if (!obj->import_table)
+      obj->import_table = ll_init();
+
+   backend_import* i = malloc(sizeof(backend_import));
+	i->name = strdup(name);
+	i->symbols = NULL;
+   ll_add(obj->import_table, i);
+   return i;
+}
+
+backend_symbol* backend_add_import_function(backend_import* mod, const char* name)
+{
+   if (!mod)
+		return NULL;
+
+   if (!mod->symbols)
+      mod->symbols = ll_init();
+
+   backend_symbol* s = malloc(sizeof(backend_symbol));
+	s->name = strdup(name);
+	s->val = 0;
+	s->type = SYMBOL_TYPE_FUNCTION;
+	s->flags = SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL;
+	s->size = 0;
+	s->section = NULL;
+   ll_add(mod->symbols, s);
+   return s;
 }
 

@@ -94,6 +94,15 @@ typedef struct backend_reloc
 	backend_symbol* symbol;
 } backend_reloc;
 
+// an import is a module containing a name, and a list of function symbols that the code
+// depends on. That means these functions must be present (i.e. dynamically linked) at a later time
+// if this code is to run.
+typedef struct backend_import
+{
+	char* name;
+   linked_list* symbols;
+} backend_import;
+
 typedef struct backend_object
 {
 	// need to add another variable representing the target architecture (after all, the code is compiled for a particular ISA)
@@ -102,6 +111,7 @@ typedef struct backend_object
    linked_list* section_table;
    linked_list* symbol_table;
    linked_list* relocation_table;
+   linked_list* import_table;
 
    const list_node* iter_symbol;
    const list_node* iter_section;
@@ -160,3 +170,7 @@ int backend_add_relocation(backend_object* obj, unsigned long offset, backend_re
 backend_reloc* backend_find_reloc_by_offset(backend_object* obj, unsigned long val);
 backend_reloc* backend_get_first_reloc(backend_object* obj);
 backend_reloc* backend_get_next_reloc(backend_object* obj);
+
+// imports
+backend_import* backend_add_import_module(backend_object* obj, const char* name);
+backend_symbol* backend_add_import_function(backend_import* mod, const char* name);
