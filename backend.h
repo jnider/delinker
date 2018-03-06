@@ -106,8 +106,6 @@ typedef struct backend_object
    const list_node* iter_symbol;
    const list_node* iter_section;
    const list_node* iter_reloc;
-
-	unsigned long address;	// base address for loading
 } backend_object;
 
 // the interface that must be implemented by a particular backend implementation - mainly for serializing to disk (and deserializing from disk)
@@ -133,7 +131,6 @@ backend_object* backend_read(const char* filename);
 int backend_write(backend_object* obj, const char* filename);
 void backend_set_type(backend_object* obj, backend_type t);
 backend_type backend_get_type(backend_object* obj);
-void backend_set_address(backend_object* obj, unsigned long addr); // set base address for loading the object
 void backend_set_entry_point(backend_object* obj, unsigned long addr);
 
 // symbols
@@ -150,6 +147,7 @@ int backend_remove_symbol_by_name(backend_object* obj, const char* name);
 // sections
 unsigned int backend_section_count(backend_object* obj);
 backend_section* backend_add_section(backend_object* obj, char* name, unsigned long size, unsigned long address, char* data, unsigned int entry_size, unsigned int alignment, unsigned long flags);
+backend_section* backend_find_section_by_val(backend_object* obj, unsigned long val);
 backend_section* backend_get_section_by_index(backend_object* obj, unsigned int index);
 backend_section* backend_get_section_by_name(backend_object* obj, const char* name);
 int backend_get_section_index_by_name(backend_object* obj, const char* name);

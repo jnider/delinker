@@ -140,11 +140,6 @@ backend_type backend_get_type(backend_object* obj)
 	return obj->type;
 }
 
-void backend_set_address(backend_object* obj, unsigned long addr)
-{
-	obj->address = addr;
-}
-
 unsigned int backend_symbol_count(backend_object* obj)
 {
    if (obj && obj->symbol_table)
@@ -165,7 +160,7 @@ backend_symbol* backend_add_symbol(backend_object* obj, const char* name, unsign
 	s->size = size;
    s->flags = flags;
    s->section = sec;
-   //printf("Adding %s type=%i size=%lu val=0x%lx\n", s->name, s->type, s->size, s->val);
+   //printf("Adding %s type=%i size=0x%lx val=0x%lx\n", s->name, s->type, s->size, s->val);
    ll_add(obj->symbol_table, s);
    //printf("There are %i symbols\n", backend_symbol_count(obj));
    return s;
@@ -215,6 +210,7 @@ backend_symbol* backend_find_symbol_by_name(backend_object* obj, const char* nam
    for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
 	{
 		bs = iter->val;
+		//printf("++ %s\n", bs->name);
 		if (strcmp(bs->name, name) == 0)
 			return bs;
 	}
@@ -332,6 +328,17 @@ backend_section* backend_get_section_by_index(backend_object* obj, unsigned int 
          return sec;
    }
    return NULL;
+}
+
+backend_section* backend_find_section_by_val(backend_object* obj, unsigned long val)
+{
+   for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
+   {
+      backend_section* sec = iter->val;
+      if (sec->address <= val && sec->address + sec->size > val)
+         return sec;
+   }
+	return NULL;
 }
 
 backend_section* backend_get_section_by_name(backend_object* obj, const char* name)
