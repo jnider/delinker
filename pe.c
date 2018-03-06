@@ -71,22 +71,42 @@ optional header
 #define SYM_CLASS_SECTION 104
 
 // section flags
-#define SCN_CNT_CODE                      5 // The section contains executable code
-#define SCN_CNT_INIT_DATA                 6 // The section contains initialized data
-#define SCN_CNT_UNINIT_DATA               7 // The section contains uninitialized data
-#define SCN_LNK_INFO                      9 // The section contains comments or other information.
-#define SCN_LNK_REMOVE                    11 // The section will not become part of the image. This is valid only for object files.
-#define SCN_LNK_COMDAT                    12 // The section contains COMDAT data. This is valid only for object files.
-#define SCN_ALIGN                         20 
-#define SCN_ALIGN_MASK                    0x00F00000
-#define SCN_LNK_NRELOC_OVFL               24 // The section contains extended relocations
-#define SCN_MEM_DISCARDABLE               25 // The section can be discarded as needed
-#define SCN_MEM_NOT_CACHED                26 // The section cannot be cached
-#define SCN_MEM_NOT_PAGED                 27 // The section is not pageable
-#define SCN_MEM_SHARED                    28 // The section can be shared in memory
-#define SCN_MEM_EXECUTE                   29 // The section can be executed as code
-#define SCN_MEM_READ                      30 // The section can be read
-#define SCN_MEM_WRITE                     31 // The section can be written to
+#define SCN_CNT_CODE                      (1<<SCN_SHIFT_CNT_CODE) // The section contains executable code
+#define SCN_CNT_INIT_DATA                 (1<<SCN_SHIFT_CNT_INIT_DATA) // The section contains initialized data
+#define SCN_CNT_UNINIT_DATA               (1<<SCN_SHIFT_CNT_UNINIT_DATA) // The section contains uninitialized data
+#define SCN_LNK_INFO                      (1<<SCN_SHIFT_LNK_INFO) // The section contains comments or other information.
+#define SCN_LNK_REMOVE                    (1<<SCN_SHIFT_LNK_REMOVE) // The section will not become part of the image. This is valid only for object files.
+#define SCN_LNK_COMDAT                    (1<<SCN_SHIFT_LNK_COMDAT) // The section contains COMDAT data. This is valid only for object files.
+#define SCN_ALIGN                         (0xF<<SCN_SHIFT_ALIGN) 
+#define SCN_LNK_NRELOC_OVFL               (1<<SCN_SHIFT_LNK_NRELOC_OVFL) // The section contains extended relocations
+#define SCN_MEM_DISCARDABLE               (1<<SCN_SHIFT_MEM_DISCARDABLE) // The section can be discarded as needed
+#define SCN_MEM_NOT_CACHED                (1<<SCN_SHIFT_MEM_NOT_CACHED) // The section cannot be cached
+#define SCN_MEM_NOT_PAGED                 (1<<SCN_SHIFT_MEM_NOT_PAGED) // The section is not pageable
+#define SCN_MEM_SHARED                    (1<<SCN_SHIFT_MEM_SHARED) // The section can be shared in memory
+#define SCN_MEM_EXECUTE                   (1<<SCN_SHIFT_MEM_EXECUTE) // The section can be executed as code
+#define SCN_MEM_READ                      (1<<SCN_SHIFT_MEM_READ) // The section can be read
+#define SCN_MEM_WRITE                     (1<<SCN_SHIFT_MEM_WRITE) // The section can be written to
+
+enum section_flags
+{
+	SCN_SHIFT_CNT_CODE = 5,
+	SCN_SHIFT_CNT_INIT_DATA,
+	SCN_SHIFT_CNT_UNINIT_DATA,
+	SCN_SHIFT_FLAG_8,
+	SCN_SHIFT_LNK_INFO,
+	SCN_SHIFT_FLAG_10,
+	SCN_SHIFT_LNK_REMOVE,
+	SCN_SHIFT_LNK_COMDAT,
+	SCN_SHIFT_ALIGN = 20,
+	SCN_SHIFT_LNK_NRELOC_OVFL = 24,
+	SCN_SHIFT_MEM_DISCARDABLE,
+	SCN_SHIFT_MEM_NOT_CACHED,
+	SCN_SHIFT_MEM_NOT_PAGED,
+	SCN_SHIFT_MEM_SHARED,
+	SCN_SHIFT_MEM_EXECUTE,
+	SCN_SHIFT_MEM_READ,
+	SCN_SHIFT_MEM_WRITE
+};
 
 typedef enum subsystem
 {
@@ -463,7 +483,7 @@ static void dump_sections(section_header* secs, unsigned int nsec)
       for (int f=24; f < 31; f++)
          if (secs[i].flags & (1<<f))
             printf("   - %s\n", section_flags_lookup[f]);
-      printf("Alignment: %i\n", (secs[i].flags & SCN_ALIGN_MASK)>>SCN_ALIGN);
+      printf("Alignment: %i\n", (secs[i].flags >> SCN_SHIFT_ALIGN) & SCN_ALIGN);
    }
 }
 
@@ -569,7 +589,7 @@ static backend_object* pe_read_file(const char* filename)
    }
 
 	// add generic object information
-	backend_set_address(obj, ((pe32_windows_header*)buff)->base);
+	unsigned int base_address = ((pe32_windows_header*)buff)->base;
 
    // read the data directories
    free(buff);
@@ -578,6 +598,7 @@ static backend_object* pe_read_file(const char* filename)
    //dump_data_dirs((data_dirs*)buff);
 
    // read the sections - they are immediately after the optional header
+	char tmp_name[32];
    printf("There are %u sections\n", ch.num_sections);
    int sectabsize = sizeof(section_header) * ch.num_sections;
    section_header* secs = malloc(sectabsize);
@@ -609,7 +630,17 @@ static backend_object* pe_read_file(const char* filename)
       if (secs[i].flags & SCN_MEM_WRITE)
          flags |= SECTION_FLAG_WRITE;
 
-      backend_add_section(obj, strndup(secs[i].name, 8), secs[i].size_in_mem, secs[i].address, data, 0, (secs[i].flags & SCN_ALIGN_MASK) >> SCN_ALIGN, flags);
+		strncpy(tmp_name, secs[i].name, 8);
+		printf("Section %s has flags: 0x%x\n", tmp_name, secs[i].flags);
+
+		// update the known names to have a consistent naming in the backend
+		if (strcmp(tmp_name, ".rdata") == 0)
+		{
+			printf("PE: replacing .rdata with .rodata\n");
+			strcpy(tmp_name, ".rodata");
+		}
+
+      backend_add_section(obj, tmp_name, secs[i].size_in_mem, base_address + secs[i].address, data, 0, (secs[i].flags >> SCN_SHIFT_ALIGN) & SCN_ALIGN, flags);
    }
 
    // read the symbol table
@@ -643,6 +674,7 @@ static backend_object* pe_read_file(const char* filename)
          }
          if (s->auxsymbols == 1)
             i++; // the aux doesn't seem to be in use by MSFT, so I'm not going to bother reading it now
+			// this strndup is leaking memory - fix it. It is duplicated again inside the call. also a few more down below in calls to add_symbol.
          backend_add_symbol(obj, strndup(name, 8), s->val, SYMBOL_TYPE_FUNCTION, 0, 0, backend_get_section_by_index(obj, s->section));
       }
       else
@@ -756,7 +788,7 @@ static int coff_write_file(backend_object* obj, const char* filename)
       sh.num_lines = 0;
       
       // section alignment
-      sh.flags = (sec->alignment<<SCN_ALIGN) & SCN_ALIGN_MASK;
+      sh.flags = (sec->alignment & SCN_ALIGN) << SCN_SHIFT_ALIGN;
 
       // convert the flags
       if (sec->flags & SECTION_FLAG_CODE)
@@ -897,7 +929,7 @@ static int pe32_write_file(backend_object* obj, const char* filename)
       sh.num_lines = 0;
       
       // section alignment
-      sh.flags = (sec->alignment<<SCN_ALIGN) & SCN_ALIGN_MASK;
+      sh.flags = (sec->alignment & SCN_ALIGN) << SCN_SHIFT_ALIGN;
 
       // convert the flags
       if (sec->flags & SECTION_FLAG_CODE)
