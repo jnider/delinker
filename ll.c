@@ -38,6 +38,8 @@ void ll_add(linked_list* ll, void* val)
 
 void* ll_remove(linked_list* ll, const void* data, ll_cmpfunc cmp)
 {
+	void* val;
+
    if (!(ll->head))
 		return NULL;
 
@@ -45,9 +47,11 @@ void* ll_remove(linked_list* ll, const void* data, ll_cmpfunc cmp)
 	list_node* tmp = ll->head;
 	if (cmp(tmp->val, data) == 0)
 	{
-		ll->head = tmp->next;
+		ll->head = ll->head->next;
 		ll->count--;
-		return tmp->val;
+		val = tmp->val;
+		free(tmp);
+		return val;
 	}
 
 	// check the rest of the list
@@ -56,9 +60,11 @@ void* ll_remove(linked_list* ll, const void* data, ll_cmpfunc cmp)
 		list_node* del = tmp->next;
 		if (cmp(del->val, data) == 0)
 		{
-			tmp = del->next;
+			tmp->next = del->next;
 			ll->count--;
-			return del->val;
+			val = del->val;
+			free(del);
+			return val;
 		}
 		tmp = tmp->next;
 	}
@@ -81,5 +87,33 @@ void* ll_pop(linked_list* ll)
 const list_node* ll_iter_start(const linked_list* ll)
 {
    return ll->head;
+}
+
+void ll_insert(list_node* here, void* val)
+{
+	if (!here)
+		return;
+
+   // create the new node
+   list_node* n = malloc(sizeof(list_node));
+   n->val = val;
+   n->next = here->next;
+	here->next = n;
+}
+
+void ll_push(linked_list* ll, void* val)
+{
+	if (!ll)
+		return;
+
+   // create the new node
+   list_node* n = malloc(sizeof(list_node));
+   n->val = val;
+	if (ll->head)
+   	n->next = ll->head;
+	else
+		n->next = NULL;
+	ll->head = n;
+   ll->count++;
 }
 
