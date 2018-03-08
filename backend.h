@@ -90,6 +90,7 @@ typedef struct backend_symbol
 typedef struct backend_reloc
 {
 	unsigned long offset;
+	long addend;
 	backend_reloc_type type;
 	backend_symbol* symbol;
 } backend_reloc;
@@ -114,6 +115,7 @@ typedef struct backend_object
    linked_list* import_table;
 
    const list_node* iter_symbol;
+   const list_node* iter_symbol_t;
    const list_node* iter_section;
    const list_node* iter_reloc;
 } backend_object;
@@ -148,11 +150,14 @@ unsigned int backend_symbol_count(backend_object* obj);
 backend_symbol* backend_add_symbol(backend_object* obj, const char* name, unsigned long val, backend_symbol_type type, unsigned long size, unsigned int flags, backend_section* sec);
 backend_symbol* backend_get_first_symbol(backend_object* obj);
 backend_symbol* backend_get_next_symbol(backend_object* obj);
+backend_symbol* backend_get_symbol_by_type_first(backend_object* obj, backend_symbol_type type);
+backend_symbol* backend_get_symbol_by_type_next(backend_object* obj, backend_symbol_type type);
 backend_symbol* backend_find_symbol_by_val(backend_object* obj, unsigned long val);
 backend_symbol* backend_find_symbol_by_name(backend_object* obj, const char* name);
 backend_symbol* backend_find_symbol_by_index(backend_object* obj, unsigned int index);
 unsigned int backend_get_symbol_index(backend_object* obj, backend_symbol* s); // if the symbol table were to be serialized, what would be the index of this symbol in the table?
 int backend_remove_symbol_by_name(backend_object* obj, const char* name);
+int backend_sort_symbols(backend_object* obj);
 
 // sections
 unsigned int backend_section_count(backend_object* obj);
@@ -166,11 +171,13 @@ backend_section* backend_get_next_section(backend_object* obj);
 
 // relocations
 unsigned int backend_relocation_count(backend_object* obj);
-int backend_add_relocation(backend_object* obj, unsigned long offset, backend_reloc_type t, backend_symbol* bs);
+int backend_add_relocation(backend_object* obj, unsigned long offset, backend_reloc_type t, long addend, backend_symbol* bs);
 backend_reloc* backend_find_reloc_by_offset(backend_object* obj, unsigned long val);
 backend_reloc* backend_get_first_reloc(backend_object* obj);
 backend_reloc* backend_get_next_reloc(backend_object* obj);
 
 // imports
 backend_import* backend_add_import_module(backend_object* obj, const char* name);
-backend_symbol* backend_add_import_function(backend_import* mod, const char* name);
+backend_import* backend_find_import_module_by_name(backend_object* obj, const char* name);
+backend_symbol* backend_add_import_function(backend_import* mod, const char* name, unsigned long val);
+backend_symbol* backend_find_import_by_address(backend_object* obj, unsigned long addr);

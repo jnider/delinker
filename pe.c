@@ -238,7 +238,7 @@ typedef struct symbol
 
 typedef struct import_dir
 {
-	unsigned int rva;
+	unsigned int lu_table;
 	unsigned int timestamp;
 	unsigned int forwarder;
 	unsigned int name;
@@ -653,8 +653,8 @@ static backend_object* pe_read_file(const char* filename)
 		// add the backend section
       backend_section* sec = backend_add_section(obj, tmp_name, secs[i].size_in_mem, base_address + secs[i].address, data, 0, (secs[i].flags >> SCN_SHIFT_ALIGN) & SCN_ALIGN, flags);
 
-		// find out which section contains the import names
-		if (secs[i].data_offset <= dd->import.address && secs[i].data_offset + secs[i].size_in_mem > dd->import.address)
+		// find out which section contains the import names (if we have imports)
+		if (dd->import.address && secs[i].data_offset <= dd->import.address && secs[i].data_offset + secs[i].size_in_mem > dd->import.address)
 		{
 			printf("Section %s (base=0x%x) has imports\n", secs[i].name, secs[i].data_offset);
 			import_file_base = secs[i].data_offset;
@@ -730,6 +730,13 @@ static backend_object* pe_read_file(const char* filename)
       }
    }
 
+	backend_section* sec_text = backend_get_section_by_name(obj, ".text");
+	if (!sec_text)
+	{
+		printf("Can't find code section!\n");
+		goto done;
+	}
+
 	// read the import directory table
 	unsigned long next;
 	import_dir dir;
@@ -737,7 +744,7 @@ static backend_object* pe_read_file(const char* filename)
 	backend_import* mod;
 	fseek(f, dd->import.address, SEEK_SET);
 	fread(&dir, sizeof(import_dir), 1, f);
-	while (dir.rva && dir.addr_table)
+	while (dir.lu_table && dir.addr_table)
 	{
 		char* name = import_sec->data + (dir.name - import_file_base);
 		//printf("Module: %s Table @ 0x%x\n", name, dir.addr_table);
@@ -747,6 +754,7 @@ static backend_object* pe_read_file(const char* filename)
 		// read the import address table
 		fseek(f, dir.addr_table, SEEK_SET);
 		fread(&lu, sizeof(unsigned int), 1, f);
+		unsigned long val = (unsigned long)import_sec->address + (dir.addr_table - import_file_base);
 		while (lu)
 		{
 			if (lu & 0x80000000)
@@ -754,16 +762,18 @@ static backend_object* pe_read_file(const char* filename)
 				char tmp_name[10];
 
 				sprintf(tmp_name, "0x%x", lu & 0xFFFF);
-				backend_add_import_function(mod, name);
+				backend_add_import_function(mod, name, val);
 			}
 			else
 			{
 				name = import_sec->data + ((lu & 0x7FFFFFFF) - import_file_base) + 2;
 
-				//printf("Function: %s\n", name);
-				backend_add_import_function(mod, name);
+				//printf("Adding Function: %s\n", name);
+				backend_add_import_function(mod, name, val);
+				backend_add_symbol(obj, name, 0, SYMBOL_TYPE_NONE, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text);
 			}
 			fread(&lu, sizeof(unsigned int), 1, f);
+			val += sizeof(unsigned int);
 		}
 
 		// get the next one
@@ -771,11 +781,14 @@ static backend_object* pe_read_file(const char* filename)
 		fread(&dir, sizeof(import_dir), 1, f);
 	}
 
+done:
    // clean up
    free(strtab);
    free(symtab);
    free(buff);
 
+	printf("PE32 loading done (%i symbols, %i relocs)\n", backend_symbol_count(obj), backend_relocation_count(obj));
+	printf("-----------------------------------------\n");
    return obj;
 }
 

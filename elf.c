@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <udis86.h> // X86 and X86_64 disassembler - probably should be in a separate .c file
 #include "backend.h"
 
 #pragma pack(1)
@@ -486,6 +487,50 @@ int elf_reloc_addend(elf_x86_64_reloc_type t)
 	return 0;
 }
 
+static long decode_plt_entry(elf_machine m, const char* plt_entry)
+{
+	ud_t ud_obj;
+	ud_init(&ud_obj);
+
+	//printf("Looking up at %p\n", plt_entry);
+	switch(m)
+	{
+	case ELF_ISA_X86:
+		ud_set_mode(&ud_obj, 32); // decode in 32 bit mode
+		break;
+
+	case ELF_ISA_X86_64:
+		ud_set_mode(&ud_obj, 64);
+		break;
+
+	default:
+		return -1;
+	}
+
+	// decode that entry
+	enum ud_mnemonic_code mnem;
+	unsigned bytes;
+	ud_set_input_buffer(&ud_obj, plt_entry, 0x10);
+	bytes = ud_disassemble(&ud_obj); // the 'jump' to the GOT
+	//bytes = ud_disassemble(&ud_obj); // the 'push'
+	//bytes = ud_disassemble(&ud_obj); // then the 'jump'to PLT start
+	mnem = ud_insn_mnemonic(&ud_obj);
+	if (mnem != UD_Ijmp)
+	{
+		printf("PLT instruction is not jump\n");
+		return -1;
+	}
+
+	const struct ud_operand* op = ud_insn_opr(&ud_obj, 0);
+	if (!op)
+		return -2;
+
+	//printf("%lx: %s\n", plt_addr, ud_lookup_mnemonic(mnem));
+	//printf("OP: %x %p %x\n", op->lval.sdword, plt_entry, bytes);
+	
+	return op->lval.sdword;
+}
+
 // read the section headers sequentially from the file, looking for a specific section name
 int elf64_find_section(FILE* f, const elf64_header* h, const char* name, const char* strtab, elf64_section* s)
 {
@@ -647,10 +692,16 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 		goto done;
 	}
 
-	// create relocs (probably should load every section of type RELA, but lets just start with
-	// .rela.plt). Code is linked using addresses in the PLT section. We want to have a relocation
-	// from that address set up to point to the correct symbol. When we load the existing relocations,
-	// we want to associate them with a symbol. 
+	backend_section* sec_plt = backend_get_section_by_name(obj, ".plt");
+	if (!sec_plt)
+	{
+		printf("Can't find PLT section!\n");
+		goto done;
+	}
+
+	// Create dynamic symbols
+	// Code is linked using addresses in the PLT section. We want to have a symbol at that address
+	// so we can look up by address when disassembling code.
 	backend_section* sec_rela = backend_get_section_by_name(obj, ".rela.plt");
 	if (!sec_rela)
 	{
@@ -666,33 +717,51 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 	elf_verneed_entry* verent = (elf_verneed_entry*)(sec_versymr->data + versymr->aux);
 	for (int i=0; i < sec_rela->size/sec_rela->entry_size; i++)
 	{
-		// we must look up this symbol by index in the dynamic symbol table. Since all entries in the
-		// dynamic symbol table have duplicates in the main symbol table, we recover the name and use
-		// the name to find the symbol entry in the main table. This prevents us from having to keep
-		// two tables, which (at least at this point) is unnecessary.
+		// we must look up this symbol by index in the ELF dynamic symbol table
 		unsigned long index = ELF_R_SYM(rela->info);
 
 		//printf("Getting dynsym index=%lu\n", index);
-		dsym += index;
+		dsym = (elf64_symbol*)sec_dynsym->data + index;
 		//printf("dynsym @ %p dsym @ %p\n", sec_dynsym->data, dsym);
 		strcpy(sym_name, sec_dynstr->data + dsym->name);
 		printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
+
 		backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_EXTERNAL, sec_text);
 		
 		// get the version number to look up the version string
-		ver += index;	
+		ver = (unsigned short*)sec_versym->data + index;
 		//printf("Version %u\n", *ver);
 		//printf("Ver: %i Count: %i File: %s\n", versymr->version, versymr->count, versymr->file + sec_dynstr->data);
 		//printf("Name: %s Flags: %i Version: %i\n", verent->name + sec_dynstr->data, verent->flags, verent->other);
+		char* module_name = NULL;
 		if (*ver == verent->other)
+			module_name = sec_dynstr->data + verent->name;
+
+		if (module_name)
 		{
-			// compose the name with the version
-			strcat(sym_name, "@@");
-			strcat(sym_name, verent->name + sec_dynstr->data);
+			backend_import* mod = backend_find_import_module_by_name(obj, module_name);
+			if (!mod)
+				mod = backend_add_import_module(obj, module_name);
+			if (mod)
+			{
+				backend_section* sec = backend_find_section_by_val(obj, rela->addr);
+				//printf("0x%lx is in section %s\n", rela->addr, sec->name);
+				unsigned long plt_addr = *(unsigned long*)(sec->data + (rela->addr - sec->address));
+				unsigned long sym_addr = plt_addr - 6;
+				//printf("Address: 0x%lx\n", sym_addr);
+				//sec = backend_find_section_by_val(obj, plt_addr);
+				//printf("0x%lx is in section %s\n", plt_addr, sec->name);
+				//long sym_addr = decode_plt_entry(ELF_ISA_X86_64, (char*)(sec->data + (plt_addr - sec->address) - 6)) + plt_addr;
+				printf("Adding import function %s @ 0x%lx\n", sym_name, sym_addr);
+				backend_add_import_function(mod, sym_name, sym_addr);
+			}
 
 			// now get the corresponding symbol from the main table and delete it
-			printf("Removing original PLT symbol %s\n", sym_name);
+			strcat(sym_name, "@@");
+			strcat(sym_name, module_name);
+			printf("Removing original PLT symbol %s (%i)\n", sym_name, backend_symbol_count(obj));
 			backend_remove_symbol_by_name(obj, sym_name);
+			printf("After: %i\n", backend_symbol_count(obj));
 		}
 
 		rela++;
@@ -892,9 +961,9 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 					elf64_rela rela;
 					rela.addr = r->offset;
 					unsigned int reloc_type = backend_to_elf_reloc_type(r->type);
-					rela.info = ELF_R_INFO(backend_get_symbol_index(obj, r->symbol)+2, reloc_type); // elf has 2 extra symbols at the beginning
-					rela.addend = elf_reloc_addend(r->type);
-					printf("writing reloc for 0x%lx symbol: %s addend: 0x%lx\n", rela.addr, r->symbol->name, rela.addend);
+					rela.info = ELF_R_INFO(backend_get_symbol_index(obj, r->symbol)+1, reloc_type); // elf has 1 null symbol at the beginning
+					rela.addend = r->addend;
+					printf("writing reloc for 0x%lx symbol: %s (%u) addend: 0x%lx\n", rela.addr, r->symbol->name, backend_get_symbol_index(obj, r->symbol)+1, rela.addend);
 					fwrite(&rela, sizeof(elf64_rela), 1, f);
 					r = backend_get_next_reloc(obj);
 				}
@@ -961,6 +1030,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 		}
 		else if (strcmp(".symtab", bs->name) == 0)
 		{
+			backend_symbol* sym;
 			int text_index = backend_get_section_index_by_name(obj, ".text");
 			// write the .symtab section header
 			printf("Writing .symtab section\n");
@@ -968,29 +1038,28 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 			sh.link = backend_get_section_index_by_name(obj, ".strtab"); // which string table to use
 			if (sh.link == -1)
 				printf("Error getting .symtab index\n");
-			printf("symtab index=%i\n", sh.link);
+			// info contains the index of the first non-local symbol
+			sym = backend_get_symbol_by_type_first(obj, SYMBOL_TYPE_FUNCTION);
+			if (sym)
+			{
+				sh.info = backend_get_symbol_index(obj, sym) + 1; // add 1 for the null symbol
+				printf("First global symbol index %i\n", sh.info);
+			}
+
+			//printf("symtab index=%i\n", sh.link);
 			sh.entsize = sizeof(elf64_symbol);
-			sh.size = (backend_symbol_count(obj) + 2) * sizeof(elf64_symbol);
+			sh.size = (backend_symbol_count(obj) + 1) * sizeof(elf64_symbol); // add 1 for the null symbol
 			sh.addralign = 8;
 			if (sh.size)
 			{
 				elf64_symbol s={0};
-				backend_symbol* sym;
 				fpos_data = ALIGN(fpos_data, sh.addralign);
 				sh.offset = fpos_data;
 				fpos_cur = ftell(f);
-				printf("We have %lu symbols\n", sh.size/sh.entsize);
+				printf("We have %u symbols\n", backend_symbol_count(obj)+1);
 				fseek(f, sh.offset, SEEK_SET);
 		
 				// write an empty symbol first
-				fwrite(&s, sizeof(elf64_symbol), 1, f);
-
-				// and a symbol representing the source file
-				s.name = strtab_entry - strtab;
-				s.info = ELF_ST_FILE;
-				s.section_index = ELF_SECTION_ABS;
-				strcpy(strtab_entry, filename);
-				strtab_entry += strlen(strtab_entry) + 1;
 				fwrite(&s, sizeof(elf64_symbol), 1, f);
 
 				// now the rest of the symbols
@@ -1004,7 +1073,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 					s.value = sym->val;
 					s.size = sym->size;
 
-					//printf("Writing symbol %s\n", sym->name);
+					printf("Writing symbol %s\n", sym->name);
 
 					// take into account any flags set in the backend
 					if (sym->flags & SYMBOL_FLAG_GLOBAL)
@@ -1020,14 +1089,26 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 					// if this is a section symbol, make sure the index is updated to the correct section
 					if (sym->type == SYMBOL_TYPE_SECTION)
 					{
-						printf("Writing section symbol %s\n", sym->name);
-						s.section_index = backend_get_section_index_by_name(obj, sym->name); // which symbol table to use
+						//printf("Writing section symbol %s\n", sym->name);
+						s.section_index = backend_get_section_index_by_name(obj, sym->name); // which section does this symbol relate to
 						if (s.section_index == -1)
+						{
 							printf("Error getting %s index\n", sym->name);
+							sym = backend_get_next_symbol(obj);
+							continue;
+						}
+						//sym->name = 0;
+						//s.name = 0;
 					}
 
-					strcpy(strtab_entry, sym->name);
-					strtab_entry += strlen(strtab_entry) + 1;
+					if (sym->type == SYMBOL_TYPE_FILE)
+						s.section_index = ELF_SECTION_ABS;
+
+					if (sym->name)
+					{
+						strcpy(strtab_entry, sym->name);
+						strtab_entry += strlen(strtab_entry) + 1;
+					}
 					fwrite(&s, sizeof(elf64_symbol), 1, f);
 					sym = backend_get_next_symbol(obj);
 				}

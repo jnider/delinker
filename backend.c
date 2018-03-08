@@ -140,6 +140,18 @@ backend_type backend_get_type(backend_object* obj)
 	return obj->type;
 }
 
+static void dump_symbol_table(backend_object* obj)
+{
+   if (!obj || !obj->symbol_table)
+      return;
+
+   for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
+	{
+		backend_symbol *bs = iter->val;
+		printf("** %s 0x%lx\n", bs->name, bs->val);
+	}
+}
+
 unsigned int backend_symbol_count(backend_object* obj)
 {
    if (obj && obj->symbol_table)
@@ -160,8 +172,12 @@ backend_symbol* backend_add_symbol(backend_object* obj, const char* name, unsign
 	s->size = size;
    s->flags = flags;
    s->section = sec;
-   //printf("Adding %s type=%i size=0x%lx val=0x%lx\n", s->name, s->type, s->size, s->val);
-   ll_add(obj->symbol_table, s);
+   printf("Adding %s type=%i size=0x%lx val=0x%lx\n", s->name, s->type, s->size, s->val);
+
+	if (type == SYMBOL_TYPE_SECTION)
+		ll_push(obj->symbol_table, s);
+	else
+   	ll_add(obj->symbol_table, s);
    //printf("There are %i symbols\n", backend_symbol_count(obj));
    return s;
 }
@@ -202,16 +218,14 @@ backend_symbol* backend_find_symbol_by_val(backend_object* obj, unsigned long va
 
 backend_symbol* backend_find_symbol_by_name(backend_object* obj, const char* name)
 {
-	backend_symbol* bs;
-
    if (!obj || !obj->symbol_table)
       return NULL;
 
    for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
 	{
-		bs = iter->val;
+		backend_symbol *bs = iter->val;
 		//printf("++ %s\n", bs->name);
-		if (strcmp(bs->name, name) == 0)
+		if (bs->name && strcmp(bs->name, name) == 0)
 			return bs;
 	}
 
@@ -236,6 +250,37 @@ backend_symbol* backend_find_symbol_by_index(backend_object* obj, unsigned int i
 	return NULL;
 }
 
+backend_symbol* backend_get_symbol_by_type_first(backend_object* obj, backend_symbol_type type)
+{
+   if (!obj || !obj->symbol_table)
+      return NULL;
+
+   for (obj->iter_symbol_t=ll_iter_start(obj->symbol_table); obj->iter_symbol_t != NULL; obj->iter_symbol_t=obj->iter_symbol_t->next)
+	{
+		backend_symbol* bs = obj->iter_symbol_t->val;
+		if (bs->type == type)
+			return bs;
+	}
+
+	return NULL;
+}
+
+backend_symbol* backend_get_symbol_by_type_next(backend_object* obj, backend_symbol_type type)
+{
+   if (!obj || !obj->symbol_table)
+      return NULL;
+
+	obj->iter_symbol_t=obj->iter_symbol_t->next;
+
+   for (; obj->iter_symbol_t != NULL; obj->iter_symbol_t=obj->iter_symbol_t->next)
+	{
+		backend_symbol* bs = obj->iter_symbol_t->val;
+		if (bs->type == type)
+			return bs;
+	}
+
+	return NULL;
+}
 unsigned int backend_get_symbol_index(backend_object* obj, backend_symbol* s)
 {
 	unsigned int count = 0;
@@ -272,13 +317,57 @@ int backend_remove_symbol_by_name(backend_object* obj, const char* name)
 	bs = ll_remove(obj->symbol_table, name, cmp_by_name);
 	if (bs)
 	{
-		printf("removing symbol %s\n", bs->name);
+		//printf("removing symbol %s\n", bs->name);
 		free(bs->name);
 		free(bs);
 		return 0;
 	}
 
 	return -2;
+}
+
+int backend_sort_symbols(backend_object* obj)
+{
+	//printf("Sorting symbols\n");
+
+   if (!obj || !obj->symbol_table)
+      return 0;
+
+	// assume the first symbol is not a section
+	list_node* temp = NULL;
+	list_node* insert = NULL;
+	list_node* prev = obj->symbol_table->head;
+	list_node* n = prev->next;
+	while (n)
+	{
+		if (((backend_symbol*)n->val)->type == SYMBOL_TYPE_SECTION)
+		{
+			//printf("Section symbol %s\n", ((backend_symbol*)n->val)->name);
+
+			// extract the node
+			temp = n;
+			prev->next = n->next;
+
+			// insert it sorted
+			if (!insert)
+			{
+				temp->next = obj->symbol_table->head;
+				obj->symbol_table->head = temp;
+				insert = temp;
+			}
+			else
+			{
+				temp->next = insert->next;
+				insert = temp;
+				insert = insert->next;
+			}
+		}
+		prev = n;
+		n = n->next;
+	}
+
+	//dump_symbol_table(obj);
+	return 0;
 }
 
 ///////////////////////////////////////////
@@ -294,6 +383,9 @@ unsigned int backend_section_count(backend_object* obj)
 
 backend_section* backend_add_section(backend_object* obj, char* name, unsigned long size, unsigned long address, char* data, unsigned int entry_size, unsigned int alignment, unsigned long flags)
 {
+	if (!obj)
+		return NULL;
+
    if (!obj->section_table)
       obj->section_table = ll_init();
 
@@ -301,9 +393,6 @@ backend_section* backend_add_section(backend_object* obj, char* name, unsigned l
 	if (!s)
 		return NULL;
 
-	//s->index = index;
-	//if (index == 0)
-	//	s->index = ll_size(obj->section_table) + 1; // index number is 1-based
    s->name = strdup(name);
    s->size = size;
    s->address = address;
@@ -366,6 +455,7 @@ int backend_get_section_index_by_name(backend_object* obj, const char* name)
    for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
    {
       backend_section* sec = iter->val;
+		//printf("-- %s\n", sec->name);
       if (!strcmp(name, sec->name))
          return index+1;
 		index++;
@@ -464,7 +554,7 @@ unsigned int backend_relocation_count(backend_object* obj)
 		return 0;
 }
 
-int backend_add_relocation(backend_object* obj, unsigned long offset, backend_reloc_type t, backend_symbol* bs)
+int backend_add_relocation(backend_object* obj, unsigned long offset, backend_reloc_type t, long addend, backend_symbol* bs)
 {
    if (!obj)
 		return -1;
@@ -475,6 +565,7 @@ int backend_add_relocation(backend_object* obj, unsigned long offset, backend_re
 
    backend_reloc* r = malloc(sizeof(backend_reloc));
 	r->offset = offset;
+	r->addend = addend;
    r->type = t;
 	r->symbol = bs;
    ll_add(obj->relocation_table, r);
@@ -528,7 +619,22 @@ backend_import* backend_add_import_module(backend_object* obj, const char* name)
    return i;
 }
 
-backend_symbol* backend_add_import_function(backend_import* mod, const char* name)
+backend_import* backend_find_import_module_by_name(backend_object* obj, const char* name)
+{
+   if (!obj || !obj->import_table)
+		return NULL;
+
+   for (const list_node* iter=ll_iter_start(obj->import_table); iter != NULL; iter=iter->next)
+   {
+      backend_import* i = iter->val;
+		if (strcmp(i->name, name) == 0)
+			return i;
+	}
+
+	return NULL;
+}
+
+backend_symbol* backend_add_import_function(backend_import* mod, const char* name, unsigned long addr)
 {
    if (!mod)
 		return NULL;
@@ -538,12 +644,35 @@ backend_symbol* backend_add_import_function(backend_import* mod, const char* nam
 
    backend_symbol* s = malloc(sizeof(backend_symbol));
 	s->name = strdup(name);
-	s->val = 0;
+	s->val = addr;
 	s->type = SYMBOL_TYPE_FUNCTION;
 	s->flags = SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL;
 	s->size = 0;
 	s->section = NULL;
    ll_add(mod->symbols, s);
    return s;
+}
+
+backend_symbol* backend_find_import_by_address(backend_object* obj, unsigned long addr)
+{
+   if (!obj || !obj->import_table)
+		return NULL;
+
+   for (const list_node* iter=ll_iter_start(obj->import_table); iter != NULL; iter=iter->next)
+   {
+      backend_import* i = iter->val;
+		if (i)
+		{
+   		for (const list_node* s_iter=ll_iter_start(i->symbols); s_iter != NULL; s_iter=s_iter->next)
+			{
+				backend_symbol* s = s_iter->val;
+				//printf("++ %s (0x%lx)\n", s->name, s->val);
+				if (s && s->val == addr)
+					return s;
+			}
+		}
+	}
+
+	return NULL;
 }
 
