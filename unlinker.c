@@ -806,18 +806,23 @@ main (int argc, char *argv[])
       return -1;
    }
 
-   char c;
-   while ((c = getopt_long (argc, argv, "O:R",
-          options, (int *) 0)) != EOF)
+   int c;
+   while (1)
    {
+      c = getopt_long (argc, argv, "O:R", options, 0);
+      if (c == -1)
+      break;
+
       switch (c)
       {
       case 'O':
          output_target = optarg;
          break;
+
       case 'R':
          config.reconstruct_symbols = 1;
          break;
+
       default:
          usage();
          return -1;
