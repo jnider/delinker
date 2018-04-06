@@ -5,10 +5,10 @@ OBJS = $(SRC:%.c=%.o)
 .PRECIOUS: *.o
 
 unlinker: $(SRC)
-	gcc $(SRC) -ludis86 -o unlinker 
+	gcc $(CFLAGS) $(SRC) -ludis86 -o unlinker
 
 clean:
 	rm -rf $(OBJS) unlinker
 
 ctags:
-	ctags -R -f tags . /usr/local/include ~/projects/udis86/libudis86
+	ctags -R -f tags . /usr/include
