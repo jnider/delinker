@@ -428,6 +428,19 @@ void dump_data_dirs(data_dirs* h)
 {
    printf("Export: 0x%x (%u)\n", h->export.address, h->export.size);
    printf("Import: 0x%x (%u)\n", h->import.address, h->import.size);
+   printf("Resource: 0x%x (%u)\n", h->resource.address, h->resource.size);
+   printf("Exception: 0x%x (%u)\n", h->exception.address, h->exception.size);
+   printf("Certificate: 0x%x (%u)\n", h->certificate.address, h->certificate.size);
+   printf("Relocation: 0x%x (%u)\n", h->relocation.address, h->relocation.size);
+   printf("Debug: 0x%x (%u)\n", h->debug.address, h->debug.size);
+   printf("Arch: 0x%x (%u)\n", h->arch.address, h->arch.size);
+   printf("Ptr: 0x%x (%u)\n", h->ptr.address, h->ptr.size);
+   printf("TLS: 0x%x (%u)\n", h->tls.address, h->tls.size);
+   printf("Load Config: 0x%x (%u)\n", h->load.address, h->load.size);
+   printf("Bound Import: 0x%x (%u)\n", h->bound.address, h->bound.size);
+   printf("Import Address: 0x%x (%u)\n", h->iat.address, h->iat.size);
+   printf("Delay Import: 0x%x (%u)\n", h->delay.address, h->delay.size);
+   printf("CLR Runtime: 0x%x (%u)\n", h->clr.address, h->clr.size);
 }
 
 static char* coff_symbol_name(symbol* s, char* stringtab)
@@ -786,6 +799,8 @@ static backend_object* pe_read_file(const char* filename)
 		fseek(f, next, SEEK_SET);
 		fread(&dir, sizeof(import_dir), 1, f);
 	}
+
+	// read the debug info
 
 done:
    // clean up
