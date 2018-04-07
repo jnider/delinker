@@ -563,6 +563,9 @@ static backend_object* pe_read_file(const char* filename)
    unsigned short state; // STATE_ID_
    fread(&state, sizeof(state), 1, f);
 
+	unsigned int entry_offset;
+	unsigned int base_address;
+
    // read the optional header
    free(buff);
    switch(state)
@@ -573,12 +576,17 @@ static backend_object* pe_read_file(const char* filename)
       buff = malloc(sizeof(optional_header));
       fread(buff, sizeof(optional_header), 1, f);
       //dump_optional((optional_header*)buff, state);
+		entry_offset = ((optional_header*)buff)->entry;
 
       // read the windows-specific header
       free(buff);
       buff = malloc(sizeof(pe32_windows_header));
       fread(buff, sizeof(pe32_windows_header), 1, f);
       //dump_pe32_windows((pe32_windows_header*)buff);
+
+		// add generic object information
+		base_address = ((pe32_windows_header*)buff)->base;
+		backend_set_entry_point(obj, base_address + entry_offset);
       break;
 
    case STATE_ID_ROM:
@@ -597,8 +605,6 @@ static backend_object* pe_read_file(const char* filename)
       printf("Unknown\n");
    }
 
-	// add generic object information
-	unsigned int base_address = ((pe32_windows_header*)buff)->base;
 
    // read the data directories
    data_dirs* dd = malloc(sizeof(data_dirs));
@@ -768,7 +774,7 @@ static backend_object* pe_read_file(const char* filename)
 			{
 				name = import_sec->data + ((lu & 0x7FFFFFFF) - import_file_base) + 2;
 
-				//printf("Adding Function: %s\n", name);
+				printf("Adding import function: %s @ 0x%lx\n", name, val);
 				backend_add_import_function(mod, name, val);
 				backend_add_symbol(obj, name, 0, SYMBOL_TYPE_NONE, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text);
 			}
