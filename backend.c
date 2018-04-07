@@ -7,14 +7,16 @@
 #define BACKEND_INIT_FUNC(_x) _x##_init
 
 DECLARE_BACKEND_INIT_FUNC(pe);
-DECLARE_BACKEND_INIT_FUNC(elf);
+DECLARE_BACKEND_INIT_FUNC(elf32);
+DECLARE_BACKEND_INIT_FUNC(elf64);
 
 
 typedef int (*backend_init_func)(void);
 static backend_init_func backend_table[] = 
 {
 	BACKEND_INIT_FUNC(pe),
-	BACKEND_INIT_FUNC(elf),
+	BACKEND_INIT_FUNC(elf32),
+	BACKEND_INIT_FUNC(elf64),
 };
 
 #define BACKEND_INIT(_x) backend_table[_x]
@@ -51,6 +53,8 @@ void backend_register(backend_ops* be)
       printf("You must implement the format() function\n");
       return;
    }
+
+	printf("registering backend %s\n", be->name());
 
    backend[num_backends++] = be;
    //printf("num backends %i\n", num_backends);
@@ -140,6 +144,17 @@ backend_type backend_get_type(backend_object* obj)
 	return obj->type;
 }
 
+void backend_set_entry_point(backend_object* obj, unsigned long addr)
+{
+	printf("Setting entry point to 0x%lx\n", addr);
+	obj->entry = addr;
+}
+
+unsigned long backend_get_entry_point(backend_object* obj)
+{
+	return obj->entry;
+}
+
 static void dump_symbol_table(backend_object* obj)
 {
    if (!obj || !obj->symbol_table)
@@ -172,7 +187,7 @@ backend_symbol* backend_add_symbol(backend_object* obj, const char* name, unsign
 	s->size = size;
    s->flags = flags;
    s->section = sec;
-   printf("Adding %s type=%i size=0x%lx val=0x%lx\n", s->name, s->type, s->size, s->val);
+   //printf("Adding %s type=%i size=0x%lx val=0x%lx\n", s->name, s->type, s->size, s->val);
 
 	if (type == SYMBOL_TYPE_SECTION)
 		ll_push(obj->symbol_table, s);
@@ -559,7 +574,7 @@ int backend_add_relocation(backend_object* obj, unsigned long offset, backend_re
    if (!obj)
 		return -1;
 
-	//printf("add relocation for %s @ 0x%lx sec=%s\n", bs->name, addr, sec?sec->name:NULL);
+	//printf("add relocation for %s @ 0x%lx type=%s\n", bs->name, offset, backend_lookup_reloc_type(t));
    if (!obj->relocation_table)
       obj->relocation_table = ll_init();
 
@@ -601,6 +616,21 @@ backend_reloc* backend_get_next_reloc(backend_object* obj)
    if (obj->iter_reloc)
       return obj->iter_reloc->val;
    return NULL;
+}
+
+const char* backend_lookup_reloc_type(backend_reloc_type t)
+{
+	switch (t)
+	{
+	case RELOC_TYPE_NONE:
+		return "none";
+	case RELOC_TYPE_OFFSET:
+		return "offset";
+	case RELOC_TYPE_PC_RELATIVE:
+		return "pc relative";
+	}
+
+	return "unknown";
 }
 
 ///////////////////////////////////////////

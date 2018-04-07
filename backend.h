@@ -108,6 +108,7 @@ typedef struct backend_object
 {
 	// need to add another variable representing the target architecture (after all, the code is compiled for a particular ISA)
    backend_type type; // the file format that should be used when writing the file - this may go away, and become a parameter to backend_write() instead
+	unsigned long entry;	// the entry point for linked files
 
    linked_list* section_table;
    linked_list* symbol_table;
@@ -144,6 +145,7 @@ int backend_write(backend_object* obj, const char* filename);
 void backend_set_type(backend_object* obj, backend_type t);
 backend_type backend_get_type(backend_object* obj);
 void backend_set_entry_point(backend_object* obj, unsigned long addr);
+unsigned long backend_get_entry_point(backend_object* obj);
 
 // symbols
 unsigned int backend_symbol_count(backend_object* obj);
@@ -175,6 +177,7 @@ int backend_add_relocation(backend_object* obj, unsigned long offset, backend_re
 backend_reloc* backend_find_reloc_by_offset(backend_object* obj, unsigned long val);
 backend_reloc* backend_get_first_reloc(backend_object* obj);
 backend_reloc* backend_get_next_reloc(backend_object* obj);
+const char* backend_lookup_reloc_type(backend_reloc_type t);
 
 // imports
 backend_import* backend_add_import_module(backend_object* obj, const char* name);
