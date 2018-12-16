@@ -1,14 +1,19 @@
-SRC = unlinker.c backend.c pe.c elf.c ll.c
+SRC_UNLINKER = delinker.c backend.c pe.c elf.c ll.c
+OBJS_UNLINKER = $(SRC_UNLINKER:%.c=%.o)
 
 OBJS = $(SRC:%.c=%.o)
 
 .PRECIOUS: *.o
 
-unlinker: $(SRC)
-	gcc $(SRC) -ludis86 -o unlinker 
+.PHONY: tags
+
+all: delinker
+
+delinker: $(SRC_UNLINKER)
+	gcc $(SRC_UNLINKER) -ludis86 -o delinker
 
 clean:
-	rm -rf $(OBJS) unlinker
+	rm -rf $(OBJS_UNLINKER) delinker $(OBJS_OTOC) otoc
 
-ctags:
+tags:
 	ctags -R -f tags . /usr/local/include ~/projects/udis86/libudis86
