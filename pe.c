@@ -823,7 +823,7 @@ secs[i].size_in_mem > dd->import.offset)
       printf("Has debug info\n");
       if (dd->debug.size != sizeof(debug_dir_header))
       {
-         printf("Unusual size %i (expected %i)\n", dd->debug.size, sizeof(debug_dir_header));
+         printf("Unusual size %i (expected %lu)\n", dd->debug.size, sizeof(debug_dir_header));
       }
 
       fseek(f, dd->debug.offset, SEEK_SET);
