@@ -194,7 +194,7 @@ typedef struct section_header
 
 typedef struct data_dir
 {
-   unsigned int address;
+   unsigned int offset;
    unsigned int size;
 } data_dir;
 
@@ -217,6 +217,18 @@ typedef struct data_dirs
    data_dir clr;
    data_dir reserved;
 } data_dirs;
+
+typedef struct debug_dir_header
+{
+   int characteristics;
+   int timestamp;
+   short major;
+   short minor;
+   int type;
+   int size;
+   int address;
+   int offset;
+} debug_dir_header;
 
 typedef struct symbol
 {
@@ -426,8 +438,21 @@ void dump_pe32_windows(pe32_windows_header* h)
 
 void dump_data_dirs(data_dirs* h)
 {
-   printf("Export: 0x%x (%u)\n", h->export.address, h->export.size);
-   printf("Import: 0x%x (%u)\n", h->import.address, h->import.size);
+   printf("Export: 0x%x (%u)\n", h->export.offset, h->export.size);
+   printf("Import: 0x%x (%u)\n", h->import.offset, h->import.size);
+   printf("Resource: 0x%x (%u)\n", h->resource.offset, h->resource.size);
+   printf("Exception: 0x%x (%u)\n", h->exception.offset, h->exception.size);
+   printf("Certificate: 0x%x (%u)\n", h->certificate.offset, h->certificate.size);
+   printf("Relocation: 0x%x (%u)\n", h->relocation.offset, h->relocation.size);
+   printf("Debug: 0x%x (%u)\n", h->debug.offset, h->debug.size);
+   printf("Arch: 0x%x (%u)\n", h->arch.offset, h->arch.size);
+   printf("Ptr: 0x%x (%u)\n", h->ptr.offset, h->ptr.size);
+   printf("TLS: 0x%x (%u)\n", h->tls.offset, h->tls.size);
+   printf("Load Config: 0x%x (%u)\n", h->load.offset, h->load.size);
+   printf("Bound Import: 0x%x (%u)\n", h->bound.offset, h->bound.size);
+   printf("Import Address: 0x%x (%u)\n", h->iat.offset, h->iat.size);
+   printf("Delay Import: 0x%x (%u)\n", h->delay.offset, h->delay.size);
+   printf("CLR Runtime: 0x%x (%u)\n", h->clr.offset, h->clr.size);
 }
 
 static char* coff_symbol_name(symbol* s, char* stringtab)
@@ -660,7 +685,8 @@ static backend_object* pe_read_file(const char* filename)
       backend_section* sec = backend_add_section(obj, tmp_name, secs[i].size_in_mem, base_address + secs[i].address, data, 0, (secs[i].flags >> SCN_SHIFT_ALIGN) & SCN_ALIGN, flags);
 
 		// find out which section contains the import names (if we have imports)
-		if (dd->import.address && secs[i].data_offset <= dd->import.address && secs[i].data_offset + secs[i].size_in_mem > dd->import.address)
+		if (dd->import.offset && secs[i].data_offset <= dd->import.offset && secs[i].data_offset +
+secs[i].size_in_mem > dd->import.offset)
 		{
 			printf("Section %s (base=0x%x) has imports\n", secs[i].name, secs[i].data_offset);
 			import_file_base = secs[i].data_offset;
@@ -744,48 +770,71 @@ static backend_object* pe_read_file(const char* filename)
 	}
 
 	// read the import directory table
-	unsigned long next;
-	import_dir dir;
-	unsigned int lu;
-	backend_import* mod;
-	fseek(f, dd->import.address, SEEK_SET);
-	fread(&dir, sizeof(import_dir), 1, f);
-	while (dir.lu_table && dir.addr_table)
-	{
-		char* name = import_sec->data + (dir.name - import_file_base);
-		//printf("Module: %s Table @ 0x%x\n", name, dir.addr_table);
-		mod = backend_add_import_module(obj, name);
-		next = ftell(f);
+   if (dd->import.size && dd->import.offset)
+   {
+	   unsigned long next;
+	   import_dir dir;
+	   unsigned int lu;
+   	backend_import* mod;
+	   fseek(f, dd->import.offset, SEEK_SET);
+   	fread(&dir, sizeof(import_dir), 1, f);
+	   while (dir.lu_table && dir.addr_table)
+   	{
+	   	char* name = import_sec->data + (dir.name - import_file_base);
+   		//printf("Module: %s Table @ 0x%x\n", name, dir.addr_table);
+	   	mod = backend_add_import_module(obj, name);
+		   next = ftell(f);
 
-		// read the import address table
-		fseek(f, dir.addr_table, SEEK_SET);
-		fread(&lu, sizeof(unsigned int), 1, f);
-		unsigned long val = (unsigned long)import_sec->address + (dir.addr_table - import_file_base);
-		while (lu)
-		{
-			if (lu & 0x80000000)
-			{
-				char tmp_name[10];
+   		// read the import address table
+	   	fseek(f, dir.addr_table, SEEK_SET);
+		   fread(&lu, sizeof(unsigned int), 1, f);
+   		unsigned long val = (unsigned long)import_sec->address + (dir.addr_table - import_file_base);
+	   	while (lu)
+		   {
+			   if (lu & 0x80000000)
+   			{
+	   			char tmp_name[10];
 
-				sprintf(tmp_name, "0x%x", lu & 0xFFFF);
-				backend_add_import_function(mod, name, val);
-			}
-			else
-			{
-				name = import_sec->data + ((lu & 0x7FFFFFFF) - import_file_base) + 2;
+		   		sprintf(tmp_name, "0x%x", lu & 0xFFFF);
+			   	backend_add_import_function(mod, name, val);
+			   }
+			   else
+			   {
+   				name = import_sec->data + ((lu & 0x7FFFFFFF) - import_file_base) + 2;
 
-				printf("Adding import function: %s @ 0x%lx\n", name, val);
-				backend_add_import_function(mod, name, val);
-				backend_add_symbol(obj, name, 0, SYMBOL_TYPE_NONE, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text);
-			}
-			fread(&lu, sizeof(unsigned int), 1, f);
-			val += sizeof(unsigned int);
-		}
+	   			//printf("Adding Function: %s\n", name);
+		   		backend_add_import_function(mod, name, val);
+			   	backend_add_symbol(obj, name, 0, SYMBOL_TYPE_NONE, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text);
+			   }
+   			fread(&lu, sizeof(unsigned int), 1, f);
+	   		val += sizeof(unsigned int);
+		   }
 
-		// get the next one
-		fseek(f, next, SEEK_SET);
-		fread(&dir, sizeof(import_dir), 1, f);
-	}
+   		// get the next one
+	   	fseek(f, next, SEEK_SET);
+		   fread(&dir, sizeof(import_dir), 1, f);
+   	}
+   }
+
+	// read the debug info
+   if (dd->debug.size && dd->debug.offset)
+   {
+      debug_dir_header ddh;
+      printf("Has debug info\n");
+      if (dd->debug.size != sizeof(debug_dir_header))
+      {
+         printf("Unusual size %i (expected %i)\n", dd->debug.size, sizeof(debug_dir_header));
+      }
+
+      fseek(f, dd->debug.offset, SEEK_SET);
+      fread(&ddh, sizeof(ddh), 1, f);
+      printf("debug type: %i\n", ddh.type);
+      printf("debug size: %i\n", ddh.size);
+      printf("debug offset: 0x%x\n", ddh.offset);
+
+      fseek(f, ddh.offset, SEEK_SET);
+      
+   }
 
 done:
    // clean up

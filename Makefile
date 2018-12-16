@@ -10,7 +10,7 @@ OBJS = $(SRC:%.c=%.o)
 all: delinker
 
 delinker: $(SRC_UNLINKER)
-	gcc $(SRC_UNLINKER) -ludis86 -o delinker
+	gcc $(CFLAGS) $(SRC_UNLINKER) -ludis86 -o delinker
 
 clean:
 	rm -rf $(OBJS_UNLINKER) delinker $(OBJS_OTOC) otoc
