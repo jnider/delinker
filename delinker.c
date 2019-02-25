@@ -13,6 +13,9 @@ and write out a set of unlinked .o files that can be relinked later.*/
 #include <udis86.h>
 #include "backend.h"
 
+#define DEFAULT_OUTPUT_FILENAME "default.o"
+#define SYMBOL_NAME_MAIN "main"
+
 enum error_codes
 {
    ERR_NONE,
@@ -21,7 +24,8 @@ enum error_codes
    ERR_NO_SYMS,
    ERR_NO_SYMS_AFTER_RECONSTRUCT,
    ERR_NO_TEXT_SECTION,
-   ERR_NO_PLT_SECTION
+   ERR_NO_PLT_SECTION,
+	ERR_CANT_CREATE_OO,
 };
 
 static struct option options[] =
@@ -145,12 +149,19 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 	// If we have reconstructed symbols and we want to be able to link again later, the linker is going to
 	// look for a symbol called 'main'. We must rename the symbol at the original entry point to be called main.
 	// This is practically the only symbol that we can recover the name for without major decompiling efforts.
-	backend_symbol *bs = backend_find_symbol_by_val(obj, backend_get_entry_point(obj));
+	backend_symbol *bs = backend_find_symbol_by_val_type(obj, backend_get_entry_point(obj), SYMBOL_TYPE_FUNCTION);
 	if (bs)
 	{
 		printf("found entry point %s @ 0x%lx - renaming to 'main'\n", bs->name, bs->val);
 		free(bs->name);
-		bs->name = strdup("main");
+		bs->name = strdup(SYMBOL_NAME_MAIN);
+	}
+	else
+	{
+		printf("No symbol for entry point @ 0x%lx - the recovery is not very accurate\n", backend_get_entry_point(obj));
+		bs = backend_find_nearest_symbol(obj, backend_get_entry_point(obj));
+		printf("%s @ 0x%lx is the closest - splitting\n", bs->name, bs->val);
+      backend_split_symbol(obj, bs, SYMBOL_NAME_MAIN, backend_get_entry_point(obj), SYMBOL_TYPE_FUNCTION, 0);
 	}
 
 	printf("%u symbols recovered\n", backend_symbol_count(obj) - start_count);
@@ -191,7 +202,7 @@ static int fixup_function_data(backend_object* obj)
 				if (offset == -1)
 					offset = sym->val;
 
-				printf("Moving function @ 0x%lx to 0x%lx (size %lu)\n", sym->val, sym->val - offset, sym->size);
+				//printf("Moving function @ 0x%lx to 0x%lx (size %lu)\n", sym->val, sym->val - offset, sym->size);
 				//printf("memmove %p, %p (size %lu)\n", code->data + sym->val - offset, code->data + sym->val, sym->size);
 				memmove(code->data + sym->val - offset, code->data + sym->val, sym->size);
 				sym->val -= offset; // update the symbol address
@@ -699,7 +710,7 @@ unlink_file(const char* input_filename, backend_type output_target)
          output_filename[len-1] = 'o';
 			oo = set_up_output_file(obj, output_filename, output_target);
          if (!oo)
-            return -10; 
+            return -ERR_CANT_CREATE_OO;
          break;
 
       case SYMBOL_TYPE_SECTION:
@@ -757,7 +768,7 @@ unlink_file(const char* input_filename, backend_type output_target)
 				base = sym->section->address;
 			}
 
-         //printf("Found function %s @ 0x%lx + 0x%lx\n", sym->name, base, sym->val-base);
+         //printf("Found function %s @ 0x%lx + 0x%lx (size:%lu)\n", sym->name, base, sym->val-base, sym->size);
 
 			// any function with a 0 size is probably an external function (from a library)
 			// even though it is a function, it should be marked as "No type"
@@ -767,8 +778,18 @@ unlink_file(const char* input_filename, backend_type output_target)
 				type = SYMBOL_TYPE_NONE;
 			}
 
+			// make sure there is an output file object to add the symbol to
+			if (!oo)
+			{
+				strcpy(output_filename, DEFAULT_OUTPUT_FILENAME);
+				oo = set_up_output_file(obj, output_filename, output_target);
+				if (!oo)
+					return -ERR_CANT_CREATE_OO;
+			}
+
          // add function symbols to the output symbol table
-			backend_add_symbol(oo, sym->name, sym->val-base, type, sym->size, flags, sec_text);
+			if (!backend_add_symbol(oo, sym->name, sym->val-base, type, sym->size, flags, sec_text))
+				printf("Error while adding symbol %s\n", sym->name);
          break;
       }
    

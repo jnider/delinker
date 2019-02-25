@@ -177,6 +177,10 @@ unsigned int backend_symbol_count(backend_object* obj)
 
 backend_symbol* backend_add_symbol(backend_object* obj, const char* name, unsigned long val, backend_symbol_type type, unsigned long size, unsigned int flags, backend_section* sec)
 {
+	// can't add a symbol if there is no backend object
+	if (!obj)
+		return NULL;
+
    if (!obj->symbol_table)
       obj->symbol_table = ll_init();
 
