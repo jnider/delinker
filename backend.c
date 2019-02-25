@@ -217,7 +217,7 @@ backend_symbol* backend_find_symbol_by_val(backend_object* obj, unsigned long va
 {
 	backend_symbol* bs;
 
-   if (!obj->symbol_table)
+   if (!obj || !obj->symbol_table)
       return NULL;
 
    for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
@@ -262,6 +262,70 @@ backend_symbol* backend_find_symbol_by_index(backend_object* obj, unsigned int i
 	if (iter)
 		return iter->val;
 
+	return NULL;
+}
+
+backend_symbol* backend_find_symbol_by_val_type(backend_object* obj, unsigned long val, backend_symbol_type type)
+{
+	backend_symbol* bs;
+
+	if (!obj || !obj->symbol_table)
+		return NULL;
+
+	for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
+	{
+		bs = iter->val;
+//			printf("Found symbol %s (%lu)\n", bs->name, bs->val);
+		if (bs->val == val && bs->type == type)
+			return bs;
+	}
+
+	return NULL;
+}
+
+backend_symbol* backend_find_nearest_symbol(backend_object* obj, unsigned long val)
+{
+	backend_symbol *bs;
+	backend_symbol *prevbs=NULL;
+
+	if (!obj || !obj->symbol_table)
+		return NULL;
+
+	for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
+	{
+		bs = iter->val;
+		if (bs->val > val)
+			return prevbs;
+		prevbs = bs;
+	}
+
+	return NULL;
+}
+
+backend_symbol* backend_split_symbol(backend_object* obj, backend_symbol *sym, const char* name, unsigned long val, backend_symbol_type type, unsigned int flags)
+{
+	if (!obj || !obj->symbol_table)
+		return NULL;
+
+	// find the insertion point
+	for (list_node* iter=(list_node*)ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
+	{
+		if (iter->val == sym)
+		{
+			unsigned int newsize;
+			backend_symbol* s = malloc(sizeof(backend_symbol));
+			newsize = val - sym->val;
+			s->name = strdup(name);
+			s->val = val;
+			s->type = type;
+			s->size = sym->size - newsize;
+			s->flags = flags;
+			s->section = sym->section;
+			ll_insert(obj->symbol_table, iter, s);
+			sym->size = newsize;
+			return s;
+		}
+	}
 	return NULL;
 }
 
