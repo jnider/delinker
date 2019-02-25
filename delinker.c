@@ -10,7 +10,7 @@ and write out a set of unlinked .o files that can be relinked later.*/
 #include <stdio.h>
 #include <string.h>
 #include <getopt.h>
-#include <udis86.h>
+#include "capstone/capstone.h"
 #include "backend.h"
 
 #define DEFAULT_OUTPUT_FILENAME "default.o"
@@ -80,6 +80,9 @@ static int check_function_sequence(backend_object* obj)
 
 static int reconstruct_symbols(backend_object* obj, int padding)
 {
+	csh handle;
+	cs_insn *cs_obj;
+
 	printf("reconstructing symbols from text section\n");
    /* find the text section */
    backend_section* sec_text = backend_get_section_by_name(obj, ".text");
@@ -97,16 +100,18 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 	char name[16];
 	unsigned int sym_addr = 0;
 	unsigned int length;
-	ud_t ud_obj;
 	int eof = 0;
+	size_t ins_count, j;
 
-	ud_init(&ud_obj);
-	ud_set_mode(&ud_obj, 32); // decode in 32 bit mode
-	ud_set_input_buffer(&ud_obj, sec_text->data, sec_text->size);
-	//ud_set_syntax(&ud_obj, NULL); // #5 no disassemble!
 	sprintf(name, "fn%06X", 0);
 
-	while (length = ud_disassemble(&ud_obj))
+	if (cs_open(CS_ARCH_X86, CS_MODE_32, &handle) != CS_ERR_OK)
+		return -1;
+
+	ins_count = cs_disasm(handle, sec_text->data, sec_text->size, 0, 0, &cs_obj);
+
+	//while (length = ud_disassemble(&ud_obj))
+	for (j=0; j < ins_count; j++)
 	{
 		enum ud_mnemonic_code mnem;
 		mnem = ud_insn_mnemonic(&ud_obj);
