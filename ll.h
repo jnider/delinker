@@ -24,6 +24,6 @@ void* ll_remove(linked_list* ll, const void* data, ll_cmpfunc cmp); // find an i
 void* ll_pop(linked_list* ll); // pops the item at the head of the list and returns it
 void ll_push(linked_list* ll, void* val);
 const list_node* ll_iter_start(const linked_list* ll);
-void ll_insert(list_node* here, void* val);
+void ll_insert(linked_list* ll, list_node* here, void* val);
 
 #endif // _LL__H

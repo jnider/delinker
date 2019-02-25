@@ -89,7 +89,7 @@ const list_node* ll_iter_start(const linked_list* ll)
    return ll->head;
 }
 
-void ll_insert(list_node* here, void* val)
+void ll_insert(linked_list* ll, list_node* here, void* val)
 {
 	if (!here)
 		return;
@@ -99,6 +99,7 @@ void ll_insert(list_node* here, void* val)
    n->val = val;
    n->next = here->next;
 	here->next = n;
+   ll->count++;
 }
 
 void ll_push(linked_list* ll, void* val)
@@ -116,4 +117,3 @@ void ll_push(linked_list* ll, void* val)
 	ll->head = n;
    ll->count++;
 }
-
