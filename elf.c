@@ -641,6 +641,8 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    printf("Size of section headers: %i\n", h->shent_size); 
    printf("String table index: %i\n", h->sh_str_index);
 
+	backend_set_entry_point(obj, h->entry);
+
    // first, preload the section header string table
    fseek(f, h->sh_off + h->shent_size * h->sh_str_index, SEEK_SET);
    fread(&in_sec, h->shent_size, 1, f);
