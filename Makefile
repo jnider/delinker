@@ -4,8 +4,6 @@ OBJS_UNLINKER = $(SRC_UNLINKER:%.c=%.o)
 INCLUDE_PATH = -Icapstone/include
 LIBRARY_PATH = -Lcapstone
 
-OBJS = $(SRC:%.c=%.o)
-
 .PRECIOUS: *.o
 
 .PHONY: tags
