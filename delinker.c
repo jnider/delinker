@@ -80,8 +80,13 @@ static int check_function_sequence(backend_object* obj)
 
 static int reconstruct_symbols(backend_object* obj, int padding)
 {
-	csh handle;
-	cs_insn *cs_obj;
+	csh cs_dis;
+	cs_mode cs_mode;
+	cs_insn *cs_ins;
+	uint64_t pc_addr, offset;
+	const uint8_t *pc;
+	size_t n;
+	unsigned long prev_addr;
 
 	printf("reconstructing symbols from text section\n");
    /* find the text section */
@@ -93,60 +98,73 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 	backend_add_symbol(obj, "source.c", 0, SYMBOL_TYPE_FILE, 0, 0, sec_text);
 
 	unsigned int start_count = backend_symbol_count(obj);
+	printf("Starting with %u symbols\n", start_count);
 
 	// decode (disassemble) the executable section, and assume that any instruction following a 'ret'
    // is the beginning of a new function. Create a symbol entry at that address, and add it to the list.
 	// We must also handle 'jmp' instructions in the middle of nowhere (jump tables?) in the same way.
-	char name[16];
-	unsigned int sym_addr = 0;
+	char name[24];
 	unsigned int length;
 	int eof = 0;
 	size_t ins_count, j;
 
+	prev_addr = sec_text->address;
 	sprintf(name, "fn%06X", 0);
 
-	if (cs_open(CS_ARCH_X86, CS_MODE_32, &handle) != CS_ERR_OK)
+	// make sure we are using the right decoder
+	backend_type t = backend_get_type(obj);
+	if (t == OBJECT_TYPE_ELF32 || t == OBJECT_TYPE_PE32)
+		cs_mode = CS_MODE_32;
+	else if (t == OBJECT_TYPE_ELF64)
+		cs_mode = CS_MODE_64;
+	else
+		return -ERR_BAD_FORMAT;
+	cs_arch arch = CS_ARCH_X86;
+
+	if (cs_open(arch, cs_mode, &cs_dis) != CS_ERR_OK)
 		return -1;
 
-	ins_count = cs_disasm(handle, sec_text->data, sec_text->size, 0, 0, &cs_obj);
-
-	//while (length = ud_disassemble(&ud_obj))
-	for (j=0; j < ins_count; j++)
+	pc = sec_text->data;
+	n = sec_text->size;
+	pc_addr = sec_text->address;
+	cs_ins = cs_malloc(cs_dis);
+	if(!cs_ins)
 	{
-		enum ud_mnemonic_code mnem;
-		mnem = ud_insn_mnemonic(&ud_obj);
-		unsigned int addr = ud_insn_off(&ud_obj);
+		printf("out of memory");
+		return -1;
+	}
 
+	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
+	{
 		// did we hit the official end of the function?
-		//if (mnem == UD_Iret || mnem == UD_Ijmp)
-		if (mnem == UD_Iret)
+		if (cs_ins->id == X86_INS_IRET || cs_ins->id == X86_INS_JMP)
 		{
 			eof = 1;
+			//printf("end: 0x%lx: %s\n", cs_ins->address, cs_ins->mnemonic);
 
 			// ignore any extraneous bytes after the 'ret' instruction
 			if (!padding)
-				backend_add_symbol(obj, name, sec_text->address + sym_addr, SYMBOL_TYPE_FUNCTION, addr - sym_addr, SYMBOL_FLAG_GLOBAL, sec_text);
+				backend_add_symbol(obj, name, cs_ins->address, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
 			continue;
 		}
 
 		// the next 'valid' instruction starts the next function
 		if (eof)
 		{
-			if (mnem == UD_Iint3 || mnem == UD_Inop)
+			if (cs_ins->id == X86_INS_INT3 || cs_ins->id == X86_INS_NOP)
 				continue;
 			else
 			{
 				// the first instruction after the end of a function - start a new function, and add
 				// the previous one to the list
 				eof = 0;
+				//printf("Start: 0x%lx: %s\n", cs_ins->address, cs_ins->mnemonic);
 
 				if (padding)
-					backend_add_symbol(obj, name, sec_text->address + sym_addr, SYMBOL_TYPE_FUNCTION, addr - sym_addr, SYMBOL_FLAG_GLOBAL, sec_text);
-				//printf("Adding function length=0x%x\n", addr - sym_addr);
+					backend_add_symbol(obj, name, prev_addr, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
 
-				sprintf(name, "fn%06X", addr);
-				sym_addr = addr;
-				//printf("Starting new function at 0x%x\n", addr);
+				sprintf(name, "fn%06lX", cs_ins->address);
+				prev_addr = cs_ins->address;
 			}
 		}
 	}
@@ -169,7 +187,9 @@ static int reconstruct_symbols(backend_object* obj, int padding)
       backend_split_symbol(obj, bs, SYMBOL_NAME_MAIN, backend_get_entry_point(obj), SYMBOL_TYPE_FUNCTION, 0);
 	}
 
-	printf("%u symbols recovered\n", backend_symbol_count(obj) - start_count);
+	printf("%u symbols after reconstruction\n", backend_symbol_count(obj) - start_count);
+	cs_free(cs_ins, 1);
+	cs_close(&cs_dis);
 
    return 0;
 }
@@ -278,9 +298,13 @@ static int build_relocations(backend_object* obj)
 {
 	backend_section* sec_text;
 	backend_section* sec;
-	ud_t ud_obj;
-
-	ud_init(&ud_obj);
+	csh cs_dis;
+	cs_mode cs_mode;
+	cs_insn *cs_ins;
+	cs_x86_op *cs_op;
+	const uint8_t *pc;
+	uint64_t pc_addr, offset;
+	size_t n;
 
 	printf("Building relocations\n");
 
@@ -292,34 +316,44 @@ static int build_relocations(backend_object* obj)
 	// make sure we are using the right decoder
 	backend_type t = backend_get_type(obj);
 	if (t == OBJECT_TYPE_ELF32 || t == OBJECT_TYPE_PE32)
-		ud_set_mode(&ud_obj, 32); // decode in 32 bit mode
+		cs_mode = CS_MODE_32;
 	else if (t == OBJECT_TYPE_ELF64)
-		ud_set_mode(&ud_obj, 64);
+		cs_mode = CS_MODE_64;
 	else
 		return -ERR_BAD_FORMAT;
+	cs_arch arch = CS_ARCH_X86;
 
-	unsigned bytes;
-	ud_set_input_buffer(&ud_obj, sec_text->data, sec_text->size);
-	//printf("Disassembling from 0x%lx to 0x%lx\n", sec_text->address, sec_text->address + sec_text->size);
-	while (bytes = ud_disassemble(&ud_obj))
+	if (cs_open(arch, cs_mode, &cs_dis) != CS_ERR_OK)
+		return -1;
+
+	cs_option(cs_dis, CS_OPT_DETAIL, CS_OPT_ON);
+	//cs_option(cs_dis, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
+
+	pc = sec_text->data;
+	n = sec_text->size;
+	pc_addr = sec_text->address;
+	cs_ins = cs_malloc(cs_dis);
+	if(!cs_ins)
+	{
+		printf("out of memory");
+		return -1;
+	}
+
+	printf("Disassembling from 0x%lx to 0x%lx\n", sec_text->address, sec_text->address + sec_text->size);
+	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
 	{
 		long val;
 		unsigned int* val_ptr=0;
-		const struct ud_operand* op;
-		enum ud_mnemonic_code mnem;
-		mnem = ud_insn_mnemonic(&ud_obj);
-		long addr = ud_insn_off(&ud_obj);
-		void* ins_data = (void*)ud_insn_ptr(&ud_obj);
-		unsigned int offset = addr + 1; // offset of the operand
+		//unsigned int offset = addr + 1; // offset of the operand
 		backend_symbol *bs=NULL;
 		int opcode_size;
 
-		switch (mnem)
+		switch (cs_ins->id)
 		{
   		//402345:	ff 34 85 d0 80 40 00 	pushl  0x4080d0(,%eax,4)
 
 		// loading a data address:  mov instruction with a 32-bit immediate
-		case UD_Imov:
+		case X86_INS_MOV:
   					// 89 35 ac af 40 00    	mov    %esi,0x40afac
   					// 8a 88 40 80 40 00    	mov    0x408040(%eax),%cl
   					// 8b 15 34 80 40 00    	mov    0x408034,%edx
@@ -330,18 +364,18 @@ static int build_relocations(backend_object* obj)
   					// bf a0 af 40 00       	mov    $0x40afa0,%edi
   					// c7 05 ac af 40 00 01 	movl   $0x1,0x40afac
 			//printf("Ins: %s (0x%x) len=%i\n", ud_lookup_mnemonic(mnem), *(char*)ins_data & 0xFF, bytes);
-			if (bytes == 6 && ((*(char*)ins_data & 0xFF) == 0x89 ||
-									(*(char*)ins_data & 0xFF) == 0x8a  ||
-									(*(char*)ins_data & 0xFF) == 0x8b))
-				val_ptr = (unsigned int*)(ins_data + 2);
-			else if (bytes == 5 && (*(char*)ins_data & 0xFF == 0xa1 ||
-									*(char*)ins_data & 0xFF == 0xa3  ||
-									*(char*)ins_data & 0xFF == 0xb8 ||
-									*(char*)ins_data & 0xFF == 0xbe ||
-									*(char*)ins_data & 0xFF == 0xbf))
-				val_ptr = (unsigned int*)(ins_data + 1);
-			else if (bytes == 7 && (*(char*)ins_data & 0xFF == 0xc7))
-				val_ptr = (unsigned int*)(ins_data + 2);
+			if (cs_ins->size == 6 && (cs_ins->bytes[0] == 0x89 ||
+									cs_ins->bytes[0] == 0x8a  ||
+									cs_ins->bytes[0] == 0x8b))
+				val_ptr = (unsigned int*)(cs_ins->bytes + 2);
+			else if (cs_ins->size == 5 && (cs_ins->bytes[0] == 0xa1 ||
+									cs_ins->bytes[0] == 0xa3  ||
+									cs_ins->bytes[0] == 0xb8 ||
+									cs_ins->bytes[0] == 0xbe ||
+									cs_ins->bytes[0] == 0xbf))
+				val_ptr = (unsigned int*)(cs_ins->bytes + 1);
+			else if (cs_ins->size == 7 && (cs_ins->bytes[0] == 0xc7))
+				val_ptr = (unsigned int*)(cs_ins->bytes + 2);
 
 			if (val_ptr)
 			{
@@ -387,25 +421,25 @@ static int build_relocations(backend_object* obj)
 			}
 			break;
 
-		case UD_Ijmp:
+		case X86_INS_JMP:
 					// ff 25 98 62 45 00       jmp    *0x456298
 					// e8 00 00 00 00          call   33 <fn000020+0x13>
-			if (bytes == 6 && ((*(char*)ins_data & 0xFF) == 0xFF)) 
+			if (cs_ins->size == 6 && (cs_ins->bytes[0] == 0xFF)) 
 			{
-				val_ptr = (unsigned int*)(ins_data + 2);
+				val_ptr = (unsigned int*)(cs_ins->bytes + 2);
 				val = *val_ptr;
 			}
-			else if (bytes == 5 && ((*(char*)ins_data & 0xFF) == 0xe8))
+			else if (cs_ins->size == 5 && (cs_ins->bytes[0] == 0xe8))
 			{
 				// this instruction uses a relative offset, so to get the absolute address, add the:
 				// section base address + current instruction offset + length of current instruction + call offset
-				val_ptr = (unsigned int*)(ins_data + 1);
-				val = sec_text->address + addr + bytes + *val_ptr;
+				val_ptr = (unsigned int*)(cs_ins->bytes + 1);
+				val = sec_text->address + cs_ins->address + cs_ins->size + *val_ptr;
 			}
 			// fall through
 
 		// callq calls a function with 1 byte opcode and signed 32-bit relative offset
-		case UD_Icall:
+		case X86_INS_CALL:
 			//printf("Found call @ 0x%lx to 0x%lx\n", sec_text->address + addr, val); 
 
 			if (val_ptr)
@@ -444,6 +478,8 @@ static int build_relocations(backend_object* obj)
 		}
 	}
 
+	cs_free(cs_ins, 1);
+	cs_close(&cs_dis);
 	printf("Done building relocations\n");
 }
 

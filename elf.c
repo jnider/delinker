@@ -8,7 +8,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
-#include <udis86.h> // X86 and X86_64 disassembler - probably should be in a separate .c file
+#include "capstone/capstone.h"
 #include "backend.h"
 
 #pragma pack(1)
@@ -561,46 +561,48 @@ int elf_reloc_addend(elf_x86_64_reloc_type t)
 
 static long decode_plt_entry(elf_machine m, const char* plt_entry)
 {
-   ud_t ud_obj;
-   ud_init(&ud_obj);
+	csh cs_dis;
+	cs_mode cs_mode;
+	cs_insn *cs_ins;
+	cs_x86_op *cs_op;
+	const uint8_t *pc;
+	uint64_t pc_addr, offset;
+	size_t n;
 
    //printf("Looking up at %p\n", plt_entry);
    switch(m)
    {
    case ELF_ISA_X86:
-      ud_set_mode(&ud_obj, 32); // decode in 32 bit mode
+		cs_mode = CS_MODE_32;
       break;
 
    case ELF_ISA_X86_64:
-      ud_set_mode(&ud_obj, 64);
+		cs_mode = CS_MODE_64;
       break;
 
    default:
       return -1;
    }
+	cs_arch arch = CS_ARCH_X86;
+
+	if (cs_open(arch, cs_mode, &cs_dis) != CS_ERR_OK)
+		return -1;
 
    // decode that entry
-   enum ud_mnemonic_code mnem;
-   unsigned bytes;
-   ud_set_input_buffer(&ud_obj, plt_entry, 0x10);
-   bytes = ud_disassemble(&ud_obj); // the 'jump' to the GOT
-   //bytes = ud_disassemble(&ud_obj); // the 'push'
-   //bytes = ud_disassemble(&ud_obj); // then the 'jump'to PLT start
-   mnem = ud_insn_mnemonic(&ud_obj);
-   if (mnem != UD_Ijmp)
+	cs_disasm(cs_dis, plt_entry, 0x10, 0, 0, &cs_ins);
+   if (cs_ins->id != X86_INS_JMP)
    {
       printf("PLT instruction is not jump\n");
       return -1;
    }
 
-   const struct ud_operand* op = ud_insn_opr(&ud_obj, 0);
-   if (!op)
-      return -2;
-
    //printf("%lx: %s\n", plt_addr, ud_lookup_mnemonic(mnem));
    //printf("OP: %x %p %x\n", op->lval.sdword, plt_entry, bytes);
    
-   return op->lval.sdword;
+   unsigned int plt_addr = *(unsigned int*)&cs_ins->bytes[1];
+
+	cs_close(&cs_dis);
+	return plt_addr;
 }
 
 // read the section headers sequentially from the file, looking for a specific section name
@@ -798,7 +800,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       dsym = (elf64_symbol*)sec_dynsym->data + index;
       //printf("dynsym @ %p dsym @ %p\n", sec_dynsym->data, dsym);
       strcpy(sym_name, sec_dynstr->data + dsym->name);
-      printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
+      //printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
 
       backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_EXTERNAL, sec_text);
       
