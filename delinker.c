@@ -16,6 +16,8 @@ and write out a set of unlinked .o files that can be relinked later.*/
 #define DEFAULT_OUTPUT_FILENAME "default.o"
 #define SYMBOL_NAME_MAIN "main"
 
+typedef void (reloc_fn)(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn *cs_ins);
+
 enum error_codes
 {
    ERR_NONE,
@@ -26,6 +28,8 @@ enum error_codes
    ERR_NO_TEXT_SECTION,
    ERR_NO_PLT_SECTION,
 	ERR_CANT_CREATE_OO,
+	ERR_UNSUPPORTED_ARCH,
+	ERR_CANT_DISASSEMBLE,
 };
 
 static struct option options[] =
@@ -83,7 +87,7 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 	csh cs_dis;
 	cs_mode cs_mode;
 	cs_insn *cs_ins;
-	uint64_t pc_addr, offset;
+	uint64_t pc_addr;
 	const uint8_t *pc;
 	size_t n;
 	unsigned long prev_addr;
@@ -287,59 +291,13 @@ static backend_symbol* get_data_section_symbol(backend_object* obj, unsigned lon
 	return NULL;
 }
 
-// Iterate through all the code to find instructions that reference absolute memory. These addresses
-// are likely to be variables in the data segment or addresses of called functions. For each one of
-// these, we want to replace the absolute value with 0, and create a relocation in its place which
-// points to a symbol. Some relocations may already exist if the symbol was dynamically linked
-// (.so, .dll, etc.). In that case, the relocation should have already been updated to point to the
-// correct symbol, and we may use it as is. For statically linked functions, we must create a new
-// relocation and point it to the correct symbol.
-static int build_relocations(backend_object* obj)
+void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn *cs_ins)
 {
-	backend_section* sec_text;
-	backend_section* sec;
-	csh cs_dis;
-	cs_mode cs_mode;
-	cs_insn *cs_ins;
-	cs_x86_op *cs_op;
-	const uint8_t *pc;
-	uint64_t pc_addr, offset;
-	size_t n;
+	const uint8_t *pc = sec->data;
+	uint64_t pc_addr = sec->address;
+	size_t n = sec->size;
 
-	printf("Building relocations\n");
-
-   /* find the text section */
-   sec_text = backend_get_section_by_name(obj, ".text");
-   if (!sec_text)
-      return -ERR_NO_TEXT_SECTION;
-
-	// make sure we are using the right decoder
-	backend_type t = backend_get_type(obj);
-	if (t == OBJECT_TYPE_ELF32 || t == OBJECT_TYPE_PE32)
-		cs_mode = CS_MODE_32;
-	else if (t == OBJECT_TYPE_ELF64)
-		cs_mode = CS_MODE_64;
-	else
-		return -ERR_BAD_FORMAT;
-	cs_arch arch = CS_ARCH_X86;
-
-	if (cs_open(arch, cs_mode, &cs_dis) != CS_ERR_OK)
-		return -1;
-
-	cs_option(cs_dis, CS_OPT_DETAIL, CS_OPT_ON);
-	//cs_option(cs_dis, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
-
-	pc = sec_text->data;
-	n = sec_text->size;
-	pc_addr = sec_text->address;
-	cs_ins = cs_malloc(cs_dis);
-	if(!cs_ins)
-	{
-		printf("out of memory");
-		return -1;
-	}
-
-	printf("Disassembling from 0x%lx to 0x%lx\n", sec_text->address, sec_text->address + sec_text->size);
+	printf("Disassembling from 0x%lx to 0x%lx\n", sec->address, sec->address + sec->size);
 	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
 	{
 		long val;
@@ -363,7 +321,7 @@ static int build_relocations(backend_object* obj)
   					// be 98 82 40 00       	mov    $0x408298,%esi
   					// bf a0 af 40 00       	mov    $0x40afa0,%edi
   					// c7 05 ac af 40 00 01 	movl   $0x1,0x40afac
-			//printf("Ins: %s (0x%x) len=%i\n", ud_lookup_mnemonic(mnem), *(char*)ins_data & 0xFF, bytes);
+			printf("ins: %s@0x%lx (0x%x) len=%i\n", cs_ins->mnemonic, cs_ins->address, cs_ins->bytes[0], cs_ins->size);
 			if (cs_ins->size == 6 && (cs_ins->bytes[0] == 0x89 ||
 									cs_ins->bytes[0] == 0x8a  ||
 									cs_ins->bytes[0] == 0x8b))
@@ -383,8 +341,6 @@ static int build_relocations(backend_object* obj)
 				sec = backend_find_section_by_val(obj, *val_ptr);
 				if (!sec)
 					continue;
-
-				//printf("Found mov @ 0x%lx addr:0x%x\n", sec_text->address + addr, *val_ptr); 
 
 				//printf("Address 0x%lx is in section %s\n", val, sec->name);
 				if (strcmp(sec->name, ".text") == 0)
@@ -411,7 +367,7 @@ static int build_relocations(backend_object* obj)
 				{
 					// add a relocation
 					//printf("Creating relocation to %s @ 0x%lx (%li)\n", bs->name, val, val - sec->address);
-					backend_add_relocation(obj, offset, RELOC_TYPE_OFFSET, *val_ptr - sec->address, bs);
+					backend_add_relocation(obj, 1, RELOC_TYPE_OFFSET, *val_ptr - sec->address, bs);
 				}
 				else
 				{
@@ -434,7 +390,7 @@ static int build_relocations(backend_object* obj)
 				// this instruction uses a relative offset, so to get the absolute address, add the:
 				// section base address + current instruction offset + length of current instruction + call offset
 				val_ptr = (unsigned int*)(cs_ins->bytes + 1);
-				val = sec_text->address + cs_ins->address + cs_ins->size + *val_ptr;
+				val = sec->address + cs_ins->address + cs_ins->size + *val_ptr;
 			}
 			// fall through
 
@@ -449,7 +405,7 @@ static int build_relocations(backend_object* obj)
 				if (bs)
 				{
 					//printf("Adding static reloc offset=%x sym=%s\n", offset, bs?bs->name:"none");
-					backend_add_relocation(obj, offset, RELOC_TYPE_PC_RELATIVE, -4, bs);
+					backend_add_relocation(obj, 0, RELOC_TYPE_PC_RELATIVE, -4, bs);
 				}
 				else
 				{
@@ -466,7 +422,7 @@ static int build_relocations(backend_object* obj)
 							if (bs)
 							{
 								printf("Adding reloc for %s\n", bs->name);
-								backend_add_relocation(obj, offset, RELOC_TYPE_PC_RELATIVE, -4, bs);
+								backend_add_relocation(obj, 0, RELOC_TYPE_PC_RELATIVE, -4, bs);
 							}
 						}
 					}
@@ -477,6 +433,92 @@ static int build_relocations(backend_object* obj)
 			break;
 		}
 	}
+}
+
+static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn *cs_ins)
+{
+	const uint8_t *pc = sec->data;
+	uint64_t pc_addr = sec->address;
+	size_t n = sec->size;
+
+	printf("Disassembling from 0x%lx to 0x%lx\n", sec->address, sec->address + sec->size);
+	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
+	{
+		long val;
+		unsigned int* val_ptr=0;
+		//unsigned int offset = addr + 1; // offset of the operand
+		backend_symbol *bs=NULL;
+		int opcode_size;
+
+			printf("ins: %s@0x%lx (0x%x) len=%i\n", cs_ins->mnemonic, cs_ins->address, cs_ins->bytes[0], cs_ins->size);
+		switch (cs_ins->id)
+		{
+		case X86_INS_MOV:
+				// 48 8b 05 9b 99 5f 00		mov    0x5f999b(%rip),%rax
+			break;
+		}
+	}
+}
+
+// Iterate through all the code to find instructions that reference absolute memory. These addresses
+// are likely to be variables in the data segment or addresses of called functions. For each one of
+// these, we want to replace the absolute value with 0, and create a relocation in its place which
+// points to a symbol. Some relocations may already exist if the symbol was dynamically linked
+// (.so, .dll, etc.). In that case, the relocation should have already been updated to point to the
+// correct symbol, and we may use it as is. For statically linked functions, we must create a new
+// relocation and point it to the correct symbol.
+static int build_relocations(backend_object* obj)
+{
+	backend_section* sec_text;
+	backend_section* sec;
+	csh cs_dis;
+	cs_insn *cs_ins;
+	cs_mode cs_mode;
+	cs_x86_op *cs_op;
+	reloc_fn *rfn;
+
+	printf("Building relocations\n");
+
+   /* find the text section */
+   sec_text = backend_get_section_by_name(obj, ".text");
+   if (!sec_text)
+      return -ERR_NO_TEXT_SECTION;
+
+	// make sure we are using the right decoder
+	backend_type t = backend_get_type(obj);
+	if (t == OBJECT_TYPE_ELF32 || t == OBJECT_TYPE_PE32)
+		cs_mode = CS_MODE_32;
+	else if (t == OBJECT_TYPE_ELF64)
+		cs_mode = CS_MODE_64;
+	else
+		return -ERR_BAD_FORMAT;
+	cs_arch arch = CS_ARCH_X86;
+
+	// pick the correct arch-specific decoder function
+	if (arch == CS_ARCH_X86 && cs_mode == CS_MODE_32)
+		rfn = reloc_x86_32;
+	else if (arch == CS_ARCH_X86 && cs_mode == CS_MODE_64)
+		rfn = reloc_x86_64;
+	else
+	{
+		printf("No delink support for that architecture\n");
+		return -ERR_UNSUPPORTED_ARCH;
+	}
+
+	if (cs_open(arch, cs_mode, &cs_dis) != CS_ERR_OK)
+		return -ERR_CANT_DISASSEMBLE;
+
+	cs_option(cs_dis, CS_OPT_DETAIL, CS_OPT_ON);
+	//cs_option(cs_dis, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
+
+	cs_ins = cs_malloc(cs_dis);
+	if(!cs_ins)
+	{
+		printf("out of memory");
+		return -1;
+	}
+
+	rfn(obj, sec_text, cs_dis, cs_ins);
 
 	cs_free(cs_ins, 1);
 	cs_close(&cs_dis);
