@@ -11,9 +11,16 @@ After reading in the binary executable file, the delinker performs 'function det
 
 External libraries
 ------------------
-The unlinker is dependent on the udis86 library, which by default is installed to /usr/local/lib. Unfortunately,
-that path is not searched by default which means the unlinker program fails to load every time, unless we
-tell the computer where to look, by adding it to the library search path:
+The udis86 library has been replaced with the capstone library. Capstone supports multiple platforms, but otherwise
+works with a similar API to udis86. It is included as a git submodule in this project. You can get the code with:
 ```
-  export LD_LIBRARY_PATH=/usr/local/lib
+git submodule update --init
+```
+
+The advantage of having it as a submodule is that we know its location. That way, we can point to its headers and
+libraries with a feeling of certainty during building/linking/execution. They have a comprehensive help file (in
+capstone/COMPILE.TXT) but basically to build it, you need to:
+```
+cd capstone
+./make.sh
 ```
