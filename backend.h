@@ -26,7 +26,8 @@ typedef enum backend_type
    OBJECT_TYPE_PE_ROM,
    OBJECT_TYPE_PE32PLUS,
    OBJECT_TYPE_ELF32,
-   OBJECT_TYPE_ELF64
+   OBJECT_TYPE_ELF64,
+   OBJECT_TYPE_MZ,
 } backend_type;
 
 typedef enum backend_symbol_type

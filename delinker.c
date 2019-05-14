@@ -7,6 +7,10 @@ backend from scratch. */
 /* The idea of the program is simple - read in a fully linked executable,
 and write out a set of unlinked .o files that can be relinked later.*/
 
+/* There is some good explanation here:
+http://bytepointer.com/resources/pietrek_how_does_a_linker_work.htm
+*/
+
 #include <stdio.h>
 #include <string.h>
 #include <getopt.h>
@@ -121,6 +125,8 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 		cs_mode = CS_MODE_32;
 	else if (t == OBJECT_TYPE_ELF64)
 		cs_mode = CS_MODE_64;
+   else if (t == OBJECT_TYPE_MZ)
+      cs_mode = CS_MODE_16;
 	else
 		return -ERR_BAD_FORMAT;
 	cs_arch arch = CS_ARCH_X86;
@@ -138,13 +144,17 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 		return -1;
 	}
 
+   printf("Disassembling pc=%p size=%lu pc_addr=0x%lx\n", pc, n, pc_addr);
 	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
 	{
 		// did we hit the official end of the function?
-		if (cs_ins->id == X86_INS_IRET || cs_ins->id == X86_INS_JMP)
+		if (cs_ins->id == X86_INS_IRET ||
+		    cs_ins->id == X86_INS_RETF)
+          //cs_ins->id == X86_INS_JMP) // we have to be able to differentiate between jump tables and short jumps (goto)
+          //inside a function
 		{
 			eof = 1;
-			//printf("end: 0x%lx: %s\n", cs_ins->address, cs_ins->mnemonic);
+			printf("end: 0x%lx: %s\n", cs_ins->address, cs_ins->mnemonic);
 
 			// ignore any extraneous bytes after the 'ret' instruction
 			if (!padding)
@@ -172,6 +182,7 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 			}
 		}
 	}
+   printf("Finished disassembling pc=%p size=%lu pc_addr=0x%lx\n", pc, n, pc_addr);
 
 	// If we have reconstructed symbols and we want to be able to link again later, the linker is going to
 	// look for a symbol called 'main'. We must rename the symbol at the original entry point to be called main.
@@ -187,8 +198,11 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 	{
 		printf("No symbol for entry point @ 0x%lx - the recovery is not very accurate\n", backend_get_entry_point(obj));
 		bs = backend_find_nearest_symbol(obj, backend_get_entry_point(obj));
-		printf("%s @ 0x%lx is the closest - splitting\n", bs->name, bs->val);
-      backend_split_symbol(obj, bs, SYMBOL_NAME_MAIN, backend_get_entry_point(obj), SYMBOL_TYPE_FUNCTION, 0);
+      if (bs)
+      {
+		   printf("%s @ 0x%lx is the closest - splitting\n", bs->name, bs->val);
+         backend_split_symbol(obj, bs, SYMBOL_NAME_MAIN, backend_get_entry_point(obj), SYMBOL_TYPE_FUNCTION, 0);
+      }
 	}
 
 	printf("%u symbols after reconstruction\n", backend_symbol_count(obj) - start_count);
@@ -460,6 +474,28 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 	}
 }
 
+static void reloc_x86_16(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn *cs_ins)
+{
+	const uint8_t *pc = sec->data;
+	uint64_t pc_addr = sec->address;
+	size_t n = sec->size;
+
+	printf("Disassembling from 0x%lx to 0x%lx\n", sec->address, sec->address + sec->size);
+	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
+	{
+		long val;
+		unsigned int* val_ptr=0;
+		//unsigned int offset = addr + 1; // offset of the operand
+		backend_symbol *bs=NULL;
+		int opcode_size;
+
+		//printf("0x%lx: %s (0x%x) len=%i\n", cs_ins->address, cs_ins->mnemonic, cs_ins->bytes[0], cs_ins->size);
+		switch (cs_ins->id)
+		{
+      }
+   }
+}
+
 // Iterate through all the code to find instructions that reference absolute memory. These addresses
 // are likely to be variables in the data segment or addresses of called functions. For each one of
 // these, we want to replace the absolute value with 0, and create a relocation in its place which
@@ -490,6 +526,8 @@ static int build_relocations(backend_object* obj)
 		cs_mode = CS_MODE_32;
 	else if (t == OBJECT_TYPE_ELF64)
 		cs_mode = CS_MODE_64;
+   else if (t == OBJECT_TYPE_MZ)
+      cs_mode = CS_MODE_16;
 	else
 		return -ERR_BAD_FORMAT;
 	cs_arch arch = CS_ARCH_X86;
@@ -499,6 +537,8 @@ static int build_relocations(backend_object* obj)
 		rfn = reloc_x86_32;
 	else if (arch == CS_ARCH_X86 && cs_mode == CS_MODE_64)
 		rfn = reloc_x86_64;
+   else if (arch == CS_ARCH_X86 && cs_mode == CS_MODE_16)
+      rfn = reloc_x86_16;
 	else
 	{
 		printf("No delink support for that architecture\n");
@@ -725,7 +765,7 @@ unlink_file(const char* input_filename, backend_type output_target)
 	{
 		printf("Can't build relocations: %i\n", ret);
 		if (ret == -ERR_BAD_FORMAT)
-			printf("Unknown code type!\n");
+			printf("Unknown code type %i\n", backend_get_type(obj));
 	}
 
    // if the output target is not specified, use the input target
@@ -888,7 +928,7 @@ unlink_file(const char* input_filename, backend_type output_target)
 		copy_data(obj, oo);
 		//backend_sort_symbols(oo);
       if (backend_write(oo, output_filename))
-			printf("Error writing file\n");
+			printf("Error writing file: %s\n", output_filename);
       backend_destructor(oo);
       oo = NULL;
    }

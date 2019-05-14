@@ -9,6 +9,7 @@
 DECLARE_BACKEND_INIT_FUNC(pe);
 DECLARE_BACKEND_INIT_FUNC(elf32);
 DECLARE_BACKEND_INIT_FUNC(elf64);
+DECLARE_BACKEND_INIT_FUNC(mz);
 
 
 typedef int (*backend_init_func)(void);
@@ -17,6 +18,7 @@ static backend_init_func backend_table[] =
 	BACKEND_INIT_FUNC(pe),
 	BACKEND_INIT_FUNC(elf32),
 	BACKEND_INIT_FUNC(elf64),
+	BACKEND_INIT_FUNC(mz),
 };
 
 #define BACKEND_INIT(_x) backend_table[_x]

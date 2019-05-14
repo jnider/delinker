@@ -1,4 +1,4 @@
-SRC_UNLINKER = delinker.c backend.c pe.c elf.c ll.c
+SRC_UNLINKER = delinker.c backend.c pe.c elf.c ll.c mz.c
 OBJS_UNLINKER = $(SRC_UNLINKER:%.c=%.o)
 
 INCLUDE_PATH = -Icapstone/include
