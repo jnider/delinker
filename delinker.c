@@ -13,6 +13,8 @@ and write out a set of unlinked .o files that can be relinked later.*/
 #include "capstone/capstone.h"
 #include "backend.h"
 
+extern int nucleus_reconstruct_symbols(backend_object *obj);
+
 #define DEFAULT_OUTPUT_FILENAME "default.o"
 #define SYMBOL_NAME_MAIN "main"
 
@@ -689,7 +691,7 @@ static int copy_data(backend_object* src, backend_object* dest)
 				goto next;
 			}
 
-			outsec->data = malloc(insec->size);
+			outsec->data = (unsigned char*)malloc(insec->size);
 			outsec->size = insec->size;
 			memcpy(outsec->data, insec->data, insec->size);
 		}
@@ -714,6 +716,7 @@ unlink_file(const char* input_filename, backend_type output_target)
 	else if (config.reconstruct_symbols)
 	{
 		reconstruct_symbols(obj, 1);
+      //nucleus_reconstruct_symbols(obj);
 		if (backend_symbol_count(obj) == 0)
 			return -ERR_NO_SYMS_AFTER_RECONSTRUCT;
 	}
@@ -832,13 +835,13 @@ unlink_file(const char* input_filename, backend_type output_target)
 			if (sym->section && !sec_text)
 			{
 				unsigned long size=0;
-				char* data=NULL;
+				unsigned char* data=NULL;
 				//printf("no text section found - creating\n");
 				//printf("Symbol %s points to section %s (%i)\n", sym->name, sym->section->name, sym->section->size);
 
 				// copy the code to the output object
 				size = sym->section->size;
-				data = malloc(size);
+				data = (unsigned char*)malloc(size);
 				memcpy(data, sym->section->data, size);
 				//printf("Data: %02x %02x %02x %02x\n", data[0]&0xFF, data[1]&0xFF, data[2]&0xFF, data[3]&0xFF);
         		sec_text = backend_add_section(oo, ".text", size, 0, data, 0, 2, SECTION_FLAG_CODE);
@@ -871,7 +874,7 @@ unlink_file(const char* input_filename, backend_type output_target)
 			}
 
          // add function symbols to the output symbol table
-			if (!backend_add_symbol(oo, sym->name, sym->val-base, type, sym->size, flags, sec_text))
+			if (!backend_add_symbol(oo, sym->name, sym->val-base, (backend_symbol_type)type, sym->size, flags, sec_text))
 				printf("Error while adding symbol %s\n", sym->name);
          break;
       }

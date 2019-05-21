@@ -2,7 +2,7 @@
 
 linked_list* ll_init(void)
 {
-   linked_list* ll = malloc(sizeof(struct linked_list));
+   linked_list* ll = (linked_list*)malloc(sizeof(struct linked_list));
    if (ll)
    {
       ll->count = 0;
@@ -19,7 +19,7 @@ unsigned int ll_size(const linked_list* ll)
 void ll_add(linked_list* ll, void* val)
 {
    // create the new node
-   list_node* n = malloc(sizeof(list_node));
+   list_node* n = (list_node*)malloc(sizeof(list_node));
    n->val = val;
    n->next = NULL;
 
@@ -95,7 +95,7 @@ void ll_insert(linked_list* ll, list_node* here, void* val)
 		return;
 
    // create the new node
-   list_node* n = malloc(sizeof(list_node));
+   list_node* n = (list_node*)malloc(sizeof(list_node));
    n->val = val;
    n->next = here->next;
 	here->next = n;
@@ -108,7 +108,7 @@ void ll_push(linked_list* ll, void* val)
 		return;
 
    // create the new node
-   list_node* n = malloc(sizeof(list_node));
+   list_node* n = (list_node*)malloc(sizeof(list_node));
    n->val = val;
 	if (ll->head)
    	n->next = ll->head;

@@ -200,8 +200,8 @@ typedef struct data_dir
 
 typedef struct data_dirs
 {
-   data_dir export;
-   data_dir import;
+   data_dir exports;
+   data_dir imports;
    data_dir resource;
    data_dir exception;
    data_dir certificate;
@@ -244,7 +244,7 @@ typedef struct symbol
    unsigned int val;
    short section; // index, 0=external, -1=abs, -2=debugging (file)
    unsigned short type; // LSB: base type MSB: complex type
-   unsigned char class;
+   unsigned char symclass;
    unsigned char auxsymbols;
 } symbol;
 
@@ -438,8 +438,8 @@ void dump_pe32_windows(pe32_windows_header* h)
 
 void dump_data_dirs(data_dirs* h)
 {
-   printf("Export: 0x%x (%u)\n", h->export.offset, h->export.size);
-   printf("Import: 0x%x (%u)\n", h->import.offset, h->import.size);
+   printf("Export: 0x%x (%u)\n", h->exports.offset, h->exports.size);
+   printf("Import: 0x%x (%u)\n", h->imports.offset, h->imports.size);
    printf("Resource: 0x%x (%u)\n", h->resource.offset, h->resource.size);
    printf("Exception: 0x%x (%u)\n", h->exception.offset, h->exception.size);
    printf("Certificate: 0x%x (%u)\n", h->certificate.offset, h->certificate.size);
@@ -482,7 +482,7 @@ void dump_symtab(symbol* symtab, unsigned int count, char* stringtab)
       {
          // decode as aux
          i++;
-         if (s->class == SYM_CLASS_FILE)
+         if (s->symclass == SYM_CLASS_FILE)
          {
             char nametmp[19];
             // COFF symbols of type file should have the name ".file"
@@ -497,7 +497,7 @@ void dump_symtab(symbol* symtab, unsigned int count, char* stringtab)
          //AUX tagndx 0 ttlsiz 0x0 lnnos 0 next 0
          aux--;
       }
-      printf("[%3u](sec %2i)(fl 0x00)(ty %3x)(scl %3i) (nx %i) 0x%08x %s\n", i, s->section, s->type, s->class, s->auxsymbols, s->val, name);
+      printf("[%3u](sec %2i)(fl 0x00)(ty %3x)(scl %3i) (nx %i) 0x%08x %s\n", i, s->section, s->type, s->symclass, s->auxsymbols, s->val, name);
    }
 }
 
@@ -534,7 +534,7 @@ backend_type pe32plus_format(void)
 
 static backend_object* pe_read_file(const char* filename)
 {
-   char* buff = malloc(sizeof(coff_header));
+   char* buff = (char*)malloc(sizeof(coff_header));
 
    FILE* f = fopen(filename, "rb");
    if (!f)
@@ -598,14 +598,14 @@ static backend_object* pe_read_file(const char* filename)
    case STATE_ID_NORMAL:
       backend_set_type(obj, OBJECT_TYPE_PE32);
       // read the optional header
-      buff = malloc(sizeof(optional_header));
+      buff = (char*)malloc(sizeof(optional_header));
       fread(buff, sizeof(optional_header), 1, f);
       //dump_optional((optional_header*)buff, state);
 		entry_offset = ((optional_header*)buff)->entry;
 
       // read the windows-specific header
       free(buff);
-      buff = malloc(sizeof(pe32_windows_header));
+      buff = (char*)malloc(sizeof(pe32_windows_header));
       fread(buff, sizeof(pe32_windows_header), 1, f);
       //dump_pe32_windows((pe32_windows_header*)buff);
 
@@ -621,7 +621,7 @@ static backend_object* pe_read_file(const char* filename)
    case STATE_ID_PE32PLUS:
       backend_set_type(obj, OBJECT_TYPE_PE32PLUS);
       free(buff);
-      //buff = malloc(sizeof(pe32_windows_header));
+      //buff = (char*)malloc(sizeof(pe32_windows_header));
       //fread(buff, sizeof(pe32_windows_header), 1, f);
       //dump_pe32plus_windows((pe32_windows_header*)buff);
       break;
@@ -632,7 +632,7 @@ static backend_object* pe_read_file(const char* filename)
 
 
    // read the data directories
-   data_dirs* dd = malloc(sizeof(data_dirs));
+   data_dirs* dd = (data_dirs*)malloc(sizeof(data_dirs));
    fread(dd, sizeof(data_dirs), 1, f);
    dump_data_dirs(dd);
 
@@ -642,14 +642,14 @@ static backend_object* pe_read_file(const char* filename)
 	backend_section* import_sec; // pointer to the section containing the import info
    printf("There are %u sections\n", ch.num_sections);
    int sectabsize = sizeof(section_header) * ch.num_sections;
-   section_header* secs = malloc(sectabsize);
+   section_header* secs = (section_header*)malloc(sectabsize);
    fread(secs, sectabsize, 1 ,f);
    //dump_sections(secs, ch.num_sections);
    for (unsigned int i=0; i < ch.num_sections; i++)
    {
       // load the data
       fseek(f, secs[i].data_offset, SEEK_SET);
-      char* data = malloc(secs[i].size_on_disk);
+      unsigned char* data = (unsigned char*)malloc(secs[i].size_on_disk);
       fread(data, secs[i].size_on_disk, 1, f);
 
       // convert the flags
@@ -685,8 +685,8 @@ static backend_object* pe_read_file(const char* filename)
       backend_section* sec = backend_add_section(obj, tmp_name, secs[i].size_in_mem, base_address + secs[i].address, data, 0, (secs[i].flags >> SCN_SHIFT_ALIGN) & SCN_ALIGN, flags);
 
 		// find out which section contains the import names (if we have imports)
-		if (dd->import.offset && secs[i].data_offset <= dd->import.offset && secs[i].data_offset +
-secs[i].size_in_mem > dd->import.offset)
+		if (dd->imports.offset && secs[i].data_offset <= dd->imports.offset && secs[i].data_offset +
+secs[i].size_in_mem > dd->imports.offset)
 		{
 			printf("Section %s (base=0x%x) has imports\n", secs[i].name, secs[i].data_offset);
 			import_file_base = secs[i].data_offset;
@@ -705,7 +705,7 @@ secs[i].size_in_mem > dd->import.offset)
    int strtabsize=0;
    fread(&strtabsize, 4, 1, f);
    //printf("string table is %i bytes long\n", strtabsize);
-   char* strtab = malloc(strtabsize + sizeof(strtabsize));
+   char* strtab = (char*)malloc(strtabsize + sizeof(strtabsize));
    fread(strtab+sizeof(strtabsize), strtabsize, 1, f);
    //dump_symtab(symtab, ch.num_symbols, strtab);
 
@@ -718,7 +718,7 @@ secs[i].size_in_mem > dd->import.offset)
       // is this a function?
       if (s->type == 0x20)
       {
-         if (s->class == SYM_CLASS_EXTERNAL && s->section <= 0)
+         if (s->symclass == SYM_CLASS_EXTERNAL && s->section <= 0)
          {
             printf("Warning: external symbol %s does not have a valid section number\n", name);
             break;
@@ -730,7 +730,7 @@ secs[i].size_in_mem > dd->import.offset)
       }
       else
       {
-         switch (s->class)
+         switch (s->symclass)
          {
          case SYM_CLASS_FILE:
             if (strcmp(name, ".file"))
@@ -770,17 +770,17 @@ secs[i].size_in_mem > dd->import.offset)
 	}
 
 	// read the import directory table
-   if (dd->import.size && dd->import.offset)
+   if (dd->imports.size && dd->imports.offset)
    {
 	   unsigned long next;
 	   import_dir dir;
 	   unsigned int lu;
    	backend_import* mod;
-	   fseek(f, dd->import.offset, SEEK_SET);
+	   fseek(f, dd->imports.offset, SEEK_SET);
    	fread(&dir, sizeof(import_dir), 1, f);
 	   while (dir.lu_table && dir.addr_table)
    	{
-	   	char* name = import_sec->data + (dir.name - import_file_base);
+	   	char* name = (char*)import_sec->data + (dir.name - import_file_base);
    		//printf("Module: %s Table @ 0x%x\n", name, dir.addr_table);
 	   	mod = backend_add_import_module(obj, name);
 		   next = ftell(f);
@@ -800,7 +800,7 @@ secs[i].size_in_mem > dd->import.offset)
 			   }
 			   else
 			   {
-   				name = import_sec->data + ((lu & 0x7FFFFFFF) - import_file_base) + 2;
+   				name = (char*)import_sec->data + ((lu & 0x7FFFFFFF) - import_file_base) + 2;
 
 	   			//printf("Adding Function: %s\n", name);
 		   		backend_add_import_function(mod, name, val);
@@ -948,16 +948,16 @@ static int coff_write_file(backend_object* obj, const char* filename)
       {
       case SYMBOL_TYPE_FILE:
          s.type = 0x20;
-         s.class = SYM_CLASS_FILE;
+         s.symclass = SYM_CLASS_FILE;
          s.section = -2;
          break;
       case SYMBOL_TYPE_SECTION:
          s.type = 0;
-         s.class = SYM_CLASS_STATIC;
+         s.symclass = SYM_CLASS_STATIC;
          break;
       case SYMBOL_TYPE_FUNCTION:
          s.type = 0;
-         s.class = SYM_CLASS_EXTERNAL;
+         s.symclass = SYM_CLASS_EXTERNAL;
          break;
       }
       fwrite(&s, sizeof(symbol), 1, f);
@@ -1091,7 +1091,7 @@ static int pe32_write_file(backend_object* obj, const char* filename)
       case SYMBOL_TYPE_FILE:
 			printf("writing file symbol %s\n", sym->name);
          s.type = 0x20;
-         s.class = SYM_CLASS_FILE;
+         s.symclass = SYM_CLASS_FILE;
          s.section = -2;
 			s.auxsymbols = 1;
 			memcpy(s.name.str, ".file", 6);
@@ -1103,14 +1103,14 @@ static int pe32_write_file(backend_object* obj, const char* filename)
       case SYMBOL_TYPE_SECTION:
 			memcpy(s.name.str, sym->name, 8);
          s.type = 0;
-         s.class = SYM_CLASS_STATIC;
+         s.symclass = SYM_CLASS_STATIC;
 			s.auxsymbols = 1;
          break;
 
       case SYMBOL_TYPE_FUNCTION:
       	memcpy(s.name.str, sym->name, 8);
          s.type = 0;
-         s.class = SYM_CLASS_EXTERNAL;
+         s.symclass = SYM_CLASS_EXTERNAL;
 			s.auxsymbols = 1;
          break;
       }
@@ -1131,11 +1131,13 @@ backend_ops pe32_backend =
    .write = pe32_write_file
 };
 
+/*
 backend_ops pe32plus_backend =
 {
    .format = pe32plus_format,
    .read = pe_read_file
 };
+*/
 
 void pe_init(void)
 {

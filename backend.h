@@ -70,7 +70,7 @@ typedef struct backend_section
    unsigned int size;
    unsigned long address;	// base address for loading this section
    unsigned int flags; // see SECTION_FLAG_
-   char* data;
+   unsigned char* data;
    unsigned int alignment; // 2**x
 	unsigned int entry_size;
 ////// private data ///////
@@ -166,7 +166,8 @@ int backend_sort_symbols(backend_object* obj);
 
 // sections
 unsigned int backend_section_count(backend_object* obj);
-backend_section* backend_add_section(backend_object* obj, char* name, unsigned long size, unsigned long address, char* data, unsigned int entry_size, unsigned int alignment, unsigned long flags);
+backend_section* backend_add_section(backend_object* obj, const char* name, unsigned long size, unsigned long address,
+   unsigned char* data, unsigned int entry_size, unsigned int alignment, unsigned long flags);
 backend_section* backend_find_section_by_val(backend_object* obj, unsigned long val);
 backend_section* backend_get_section_by_index(backend_object* obj, unsigned int index);
 backend_section* backend_get_section_by_name(backend_object* obj, const char* name);

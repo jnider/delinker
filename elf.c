@@ -70,7 +70,7 @@ typedef enum elf_machine
 } elf_machine;
 
 // OS
-typedef enum os
+typedef enum elf_os
 {
    ELF_OS_SYSTEM_V,
    ELF_OS_HP_UX,
@@ -91,16 +91,16 @@ typedef enum os
    ELF_OS_CLOUD_ABI,
    ELF_OS_SORTIX = 0x53,
    ELF_OS_NONE = 0xff
-} os;
+} elf_os;
 
-typedef enum type
+typedef enum elf_type
 {
    ELF_TYPE_NONE,
    ELF_TYPE_RELOC,
    ELF_TYPE_EXEC,
    ELF_TYPE_SHARED,
    ELF_TYPE_CORE
-} type;
+} elf_type;
 
 typedef enum section_type
 {
@@ -187,7 +187,7 @@ typedef enum elf_x86_reloc_type
 typedef struct elf32_header
 {
    char magic[4];
-   char class;       // 1=32 bit, 2=64 bit
+   char classtype;   // 1=32 bit, 2=64 bit
    char endian;      // 1=little, 2=big
    char h_version;
    char os;          // see ELF_OS_
@@ -403,12 +403,12 @@ static const char* section_flags_lookup[] =
          return _table[i].name; \
    return _table[0].name;
 
-static const char* elf_lookup_type(enum type type)
+static const char* elf_lookup_type(enum elf_type type)
 {
    __lookup(type, type_lookup);
 }
 
-static const char* elf_lookup_os(enum os os)
+static const char* elf_lookup_os(enum elf_os os)
 {
    __lookup(os, os_lookup);
 }
@@ -447,8 +447,8 @@ void dump_elf_header(const char* buf)
       printf("%i is not a known ELF size\n", e64->size);
    }
 
-   printf("OS: %s\n", elf_lookup_os(e64->os));
-   printf("Type: %s\n", elf_lookup_type(e64->type));
+   printf("OS: %s\n", elf_lookup_os((elf_os)e64->os));
+   printf("Type: %s\n", elf_lookup_type((elf_type)e64->type));
    printf("Machine: %s (%i)\n", elf_lookup_machine(e64->machine), e64->machine);
    printf("Entry point: 0x%lx\n", e64->entry);
    printf("Number of program headers: %i\n", e64->ph_num); 
@@ -559,7 +559,7 @@ int elf_reloc_addend(elf_x86_64_reloc_type t)
    return 0;
 }
 
-static long decode_plt_entry(elf_machine m, const char* plt_entry)
+static long decode_plt_entry(elf_machine m, const unsigned char* plt_entry)
 {
 	csh cs_dis;
 	cs_mode cs_mode;
@@ -631,7 +631,22 @@ static backend_object* elf32_read_file(FILE* f, elf32_header* h)
 
 static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 {
+   char sym_name[64];
    elf64_section in_sec;
+   backend_section* sec_symtab;
+   backend_section* sec_dynsym;
+   backend_section* sec_dynstr;
+   backend_section* sec_versym;
+   backend_section* sec_versymr;
+   backend_section* sec_text;
+   backend_section* sec_plt;
+   backend_section* sec_rela;
+   elf64_symbol* dsym;
+   elf64_symbol* sym;
+   elf64_rela* rela;
+   unsigned short* ver;
+   elf_verneed_header* versymr;
+   elf_verneed_entry* verent;
 
    backend_object* obj = backend_create();
    if (!obj)
@@ -649,7 +664,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    fseek(f, h->sh_off + h->shent_size * h->sh_str_index, SEEK_SET);
    fread(&in_sec, h->shent_size, 1, f);
 
-   char* section_strtab = malloc(in_sec.size);
+   char* section_strtab = (char*)malloc(in_sec.size);
    fseek(f, in_sec.offset, SEEK_SET);
    fread(section_strtab, in_sec.size, 1, f);
    
@@ -664,7 +679,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       if (!backend_get_section_by_name(obj, name))
       {
          unsigned long flags=0;
-         char* data = malloc(in_sec.size);
+         unsigned char* data = (unsigned char*)malloc(in_sec.size);
 
          fseek(f, in_sec.offset, SEEK_SET);
          fread(data, in_sec.size, 1, f);
@@ -702,20 +717,20 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    }
 
    // create symbols
-   backend_section* sec_symtab = backend_get_section_by_name(obj, ".symtab");
+   sec_symtab = backend_get_section_by_name(obj, ".symtab");
    if (!sec_symtab)
    {
       printf("Can't find symbol table section!\n");
       goto done;
    }
-   elf64_symbol* sym = (elf64_symbol*)sec_symtab->data;
+   sym = (elf64_symbol*)sec_symtab->data;
    //printf("Symbol table size: %i entry size: %i\n", sec_symtab->size, sec_symtab->entry_size);
    for (int i=0; i < sec_symtab->size/sec_symtab->entry_size; i++)
    {
       if (sym->name)
       {  
          backend_section* sec;
-         char* name = sec_strtab->data + sym->name;
+         char* name = (char*)sec_strtab->data + sym->name;
 
          // try to determine the section that this symbol belongs to
          if (sym->section_index <= 0 || sym->section_index == ELF_SECTION_ABS || sym->section_index == ELF_SECTION_COMMON)
@@ -733,42 +748,42 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    }
 
    // since we are dealing with dynamic symbols, we will need access to the dynamic symbol table, dynamic string table and version tables
-   backend_section* sec_dynsym = backend_get_section_by_name(obj, ".dynsym");
+   sec_dynsym = backend_get_section_by_name(obj, ".dynsym");
    if (!sec_dynsym)
    {
       printf("Can't find .dynsym\n");
       goto done;
    }
 
-   backend_section* sec_dynstr = backend_get_section_by_name(obj, ".dynstr");
+   sec_dynstr = backend_get_section_by_name(obj, ".dynstr");
    if (!sec_dynstr)
    {
       printf("Can't find .dynstr\n");
       goto done;
    }
 
-   backend_section* sec_versym = backend_get_section_by_name(obj, ".gnu.version");
+   sec_versym = backend_get_section_by_name(obj, ".gnu.version");
    if (!sec_versym)
    {
       printf("Can't find .gnu.version\n");
       goto done;
    }
 
-   backend_section* sec_versymr = backend_get_section_by_name(obj, ".gnu.version_r");
+   sec_versymr = backend_get_section_by_name(obj, ".gnu.version_r");
    if (!sec_versymr)
    {
       printf("Can't find .gnu.version_r\n");
       goto done;
    }
 
-   backend_section* sec_text = backend_get_section_by_name(obj, ".text");
+   sec_text = backend_get_section_by_name(obj, ".text");
    if (!sec_text)
    {
       printf("Can't find code section!\n");
       goto done;
    }
 
-   backend_section* sec_plt = backend_get_section_by_name(obj, ".plt");
+   sec_plt = backend_get_section_by_name(obj, ".plt");
    if (!sec_plt)
    {
       printf("Can't find PLT section!\n");
@@ -778,19 +793,18 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    // Create dynamic symbols
    // Code is linked using addresses in the PLT section. We want to have a symbol at that address
    // so we can look up by address when disassembling code.
-   backend_section* sec_rela = backend_get_section_by_name(obj, ".rela.plt");
+   sec_rela = backend_get_section_by_name(obj, ".rela.plt");
    if (!sec_rela)
    {
       printf("Can't find PLT reloc section!\n");
       goto done;
    }
 
-   char sym_name[64];
-   elf64_rela* rela = (elf64_rela*)sec_rela->data;
-   elf64_symbol* dsym = (elf64_symbol*)sec_dynsym->data;
-   unsigned short* ver = (unsigned short*)sec_versym->data;
-   elf_verneed_header* versymr = (elf_verneed_header*)sec_versymr->data;
-   elf_verneed_entry* verent = (elf_verneed_entry*)(sec_versymr->data + versymr->aux);
+   rela = (elf64_rela*)sec_rela->data;
+   dsym = (elf64_symbol*)sec_dynsym->data;
+   ver = (unsigned short*)sec_versym->data;
+   versymr = (elf_verneed_header*)sec_versymr->data;
+   verent = (elf_verneed_entry*)(sec_versymr->data + versymr->aux);
    for (int i=0; i < sec_rela->size/sec_rela->entry_size; i++)
    {
       // we must look up this symbol by index in the ELF dynamic symbol table
@@ -799,7 +813,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       //printf("Getting dynsym index=%lu\n", index);
       dsym = (elf64_symbol*)sec_dynsym->data + index;
       //printf("dynsym @ %p dsym @ %p\n", sec_dynsym->data, dsym);
-      strcpy(sym_name, sec_dynstr->data + dsym->name);
+      strcpy(sym_name, (char*)sec_dynstr->data + dsym->name);
       //printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
 
       backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_EXTERNAL, sec_text);
@@ -811,7 +825,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       //printf("Name: %s Flags: %i Version: %i\n", verent->name + sec_dynstr->data, verent->flags, verent->other);
       char* module_name = NULL;
       if (*ver == verent->other)
-         module_name = sec_dynstr->data + verent->name;
+         module_name = (char*)sec_dynstr->data + verent->name;
 
       if (module_name)
       {
@@ -855,8 +869,10 @@ done:
 
 static backend_object* elf_read_file(const char* filename)
 {
+   int fsize;
+   elf64_header* h;
    backend_object* obj = NULL;
-   char* buff = malloc(sizeof(elf64_header));
+   char* buff = (char*)malloc(sizeof(elf64_header));
 
    FILE* f = fopen(filename, "rb");
    if (!f)
@@ -867,7 +883,7 @@ static backend_object* elf_read_file(const char* filename)
 
    // get size of the file
    fseek(f, 0, SEEK_END);
-   int fsize = ftell(f);
+   fsize = ftell(f);
 
    // read enough data for the ELF64 header, and then figure out dynamically which one we've got
    fseek(f, 0, SEEK_SET);
@@ -877,7 +893,7 @@ static backend_object* elf_read_file(const char* filename)
    
    dump_elf_header(buff);
    
-   elf64_header* h = (elf64_header*)buff;
+   h = (elf64_header*)buff;
 
    // load the rest of the data
    if (h->size == 1)
@@ -938,7 +954,7 @@ static int elf32_write_file(backend_object* obj, const char* filename)
    // write file header
    memset(&fh, 0, sizeof(elf32_header));
    memcpy(fh.magic, ELF_MAGIC, MAGIC_SIZE);
-   fh.class = 1;
+   fh.classtype = 1;
    fh.endian = 1;
    fh.h_version = 1;
    fh.os = ELF_OS_SYSTEM_V;
@@ -958,7 +974,7 @@ static int elf32_write_file(backend_object* obj, const char* filename)
    int fpos_data = fh.sh_off + fh.shent_size*fh.sh_num;
 
    // build the section header string table with the names we need
-   char* shstrtab = malloc(shstrtab_size); // just need enough space for a few strings
+   char* shstrtab = (char*)malloc(shstrtab_size); // just need enough space for a few strings
    char* shstrtab_entry = shstrtab+1;
    shstrtab[0] = 0; // the initial entry is always 0
    bs = backend_get_first_section(obj);
@@ -976,7 +992,7 @@ static int elf32_write_file(backend_object* obj, const char* filename)
    }
 
    // build the symbol string table as well
-   char* strtab = malloc(strtab_size);
+   char* strtab = (char*)malloc(strtab_size);
    char* strtab_entry = strtab+1;
    strtab[0] = 0; // the initial entry is always 0
 
@@ -1193,7 +1209,7 @@ static int elf32_write_file(backend_object* obj, const char* filename)
                      unsigned int offset = strtab_entry - strtab;
                      strtab_size += 4096;
                      printf("Exceeded string table size - extending to %u\n", strtab_size);
-                     strtab = realloc(strtab, strtab_size);
+                     strtab = (char*)realloc(strtab, strtab_size);
                      strtab_entry = strtab + offset;
                   }
                   strcpy(strtab_entry, sym->name);
@@ -1321,7 +1337,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
    int fpos_data = fh.sh_off + fh.shent_size*fh.sh_num;
 
    // build the section header string table with the names we need
-   char* shstrtab = malloc(shstrtab_size); // just need enough space for a few strings
+   char* shstrtab = (char*)malloc(shstrtab_size); // just need enough space for a few strings
    char* shstrtab_entry = shstrtab+1;
    shstrtab[0] = 0; // the initial entry is always 0
    bs = backend_get_first_section(obj);
@@ -1339,7 +1355,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
    }
 
    // build the symbol string table as well
-   char* strtab = malloc(strtab_size);
+   char* strtab = (char*)malloc(strtab_size);
    char* strtab_entry = strtab+1;
    strtab[0] = 0; // the initial entry is always 0
 
@@ -1556,7 +1572,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
                      unsigned int offset = strtab_entry - strtab;
                      strtab_size += 4096;
                      printf("Exceeded string table size - extending to %u\n", strtab_size);
-                     strtab = realloc(strtab, strtab_size);
+                     strtab = (char*)realloc(strtab, strtab_size);
                      strtab_entry = strtab + offset;
                   }
                   strcpy(strtab_entry, sym->name);
