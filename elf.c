@@ -16,6 +16,7 @@
 #define ALIGN(_x, _y) ((_x + (_y-1)) & ~(_y-1))
 #define ELF_MAGIC "\x7F\x45\x4c\x46"
 #define MAGIC_SIZE 4
+#define SYMBOL_MAX_LENGTH 127
 
 #define ELF_SYMBOL_GLOBAL 0x0010
 #define ELF_SYMBOL_WEAK 0x0020
@@ -631,7 +632,7 @@ static backend_object* elf32_read_file(FILE* f, elf32_header* h)
 
 static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 {
-   char sym_name[64];
+   char sym_name[SYMBOL_MAX_LENGTH+1];
    elf64_section in_sec;
    backend_section* sec_symtab;
    backend_section* sec_dynsym;
@@ -813,7 +814,12 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       //printf("Getting dynsym index=%lu\n", index);
       dsym = (elf64_symbol*)sec_dynsym->data + index;
       //printf("dynsym @ %p dsym @ %p\n", sec_dynsym->data, dsym);
-      strcpy(sym_name, (char*)sec_dynstr->data + dsym->name);
+      if (strlen((char*)sec_dynstr->data + dsym->name) > SYMBOL_MAX_LENGTH)
+      {
+         printf("warning: string too long!\n");
+         sym_name[SYMBOL_MAX_LENGTH] = 0;
+      }
+      strncpy(sym_name, (char*)sec_dynstr->data + dsym->name, SYMBOL_MAX_LENGTH);
       //printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
 
       backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_EXTERNAL, sec_text);
