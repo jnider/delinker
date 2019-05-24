@@ -38,21 +38,27 @@ static struct option options[] =
 {
   {"output-target", required_argument, 0, 'O'},
   {"reconstruct-symbols", no_argument, 0, 'R'},
+  {"verbose", no_argument, 0, 'v'},
   {0, no_argument, 0, 0}
 };
 
 struct config
 {
-   int reconstruct_symbols;
+   int reconstruct_symbols;   // rebuild the symbol table
+   int verbose;               // print extra information at runtime
 } config;
 
 static void
 usage(void)
 {
-   fprintf(stderr, "Unlinker performs the opposite action to 'ld'. It accepts a binary executable as input, and\n");
-   fprintf(stderr, "creates a set of .o files that can be relinked.\n");
-   fprintf(stderr, "unlinker <input file>\n\n\n");
-   fprintf(stderr, "Supported backend targets:\n");
+   fprintf(stderr, "Delinker performs the opposite action to 'ld'. It accepts a binary executable as input, and\n");
+   fprintf(stderr, "creates a set of .o files that can be relinked.\n\n");
+   fprintf(stderr, "delinker [OPTIONS] <input file>\n\n");
+   fprintf(stderr, "OPTIONS:\n");
+   fprintf(stderr, "-R, --reconstruct-symbols\tRebuild the symbol table by various techniques\n");
+   fprintf(stderr, "-O, --output-target\t\tSpecify the output file format (see supported backend targets below)\n");
+   fprintf(stderr, "-v, --verbose\t\t\tPrint lots of information - useful for debugging\n");
+   fprintf(stderr, "\nSupported backend targets:\n");
 	const char* t = backend_get_first_target();
 	while (t)
 	{
@@ -916,7 +922,7 @@ main (int argc, char *argv[])
    int c;
    while (1)
    {
-      c = getopt_long (argc, argv, "O:R", options, 0);
+      c = getopt_long (argc, argv, "O:Rv", options, 0);
       if (c == -1)
       break;
 
@@ -928,6 +934,10 @@ main (int argc, char *argv[])
 
       case 'R':
          config.reconstruct_symbols = 1;
+         break;
+
+      case 'v':
+         config.verbose = 1;
          break;
 
       default:
