@@ -2,6 +2,7 @@
 #include <string.h>
 #include "backend.h"
 #include "ll.h"
+#include "config.h"
 
 #define DECLARE_BACKEND_INIT_FUNC(_x) extern int _x##_init()
 #define BACKEND_INIT_FUNC(_x) _x##_init
@@ -146,7 +147,8 @@ backend_type backend_get_type(backend_object* obj)
 
 void backend_set_entry_point(backend_object* obj, unsigned long addr)
 {
-	printf("Setting entry point to 0x%lx\n", addr);
+   if (config.verbose)
+	   fprintf(stderr, "Setting entry point to 0x%lx\n", addr);
 	obj->entry = addr;
 }
 

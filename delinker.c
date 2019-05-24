@@ -12,6 +12,7 @@ and write out a set of unlinked .o files that can be relinked later.*/
 #include <getopt.h>
 #include "capstone/capstone.h"
 #include "backend.h"
+#include "config.h"
 
 extern int nucleus_reconstruct_symbols(backend_object *obj);
 
@@ -42,11 +43,8 @@ static struct option options[] =
   {0, no_argument, 0, 0}
 };
 
-struct config
-{
-   int reconstruct_symbols;   // rebuild the symbol table
-   int verbose;               // print extra information at runtime
-} config;
+// The global configuration options
+struct config config;
 
 static void
 usage(void)
@@ -711,6 +709,9 @@ next:
 static int
 unlink_file(const char* input_filename, backend_type output_target)
 {
+   if (config.verbose)
+      fprintf(stderr, "Reading input file %s\n", input_filename);
+
    backend_object* obj = backend_read(input_filename);
 
 	if (!obj)
@@ -721,6 +722,9 @@ unlink_file(const char* input_filename, backend_type output_target)
 		return -ERR_NO_SYMS;
 	else if (config.reconstruct_symbols)
 	{
+      if (config.verbose)
+         fprintf(stderr, "Reconstructing symbols with built-in function detector\n");
+
 		reconstruct_symbols(obj, 1);
       //nucleus_reconstruct_symbols(obj);
 		if (backend_symbol_count(obj) == 0)
