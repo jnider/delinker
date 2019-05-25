@@ -33,6 +33,23 @@ enum error_codes
 	ERR_CANT_CREATE_OO,
 	ERR_UNSUPPORTED_ARCH,
 	ERR_CANT_DISASSEMBLE,
+   ERR_NO_MEMORY,
+};
+
+typedef char error_msg[32];
+error_msg error_code_str[] =
+{
+   "Success",
+   "Bad file",
+   "Bad format",
+   "No symbols",
+   "No symbols after reconstruction",
+   "No .text section",
+   "No PLT section",
+   "Can't create oo",
+   "Unsupported architecture",
+   "Can't disassemble",
+   "Out of memory",
 };
 
 static struct option options[] =
@@ -532,8 +549,7 @@ static int build_relocations(backend_object* obj)
 	cs_ins = cs_malloc(cs_dis);
 	if(!cs_ins)
 	{
-		printf("out of memory");
-		return -1;
+		return -ERR_NO_MEMORY;
 	}
 
 	rfn(obj, sec_text, cs_dis, cs_ins);
@@ -748,9 +764,8 @@ unlink_file(const char* input_filename, backend_type output_target)
 	int ret = build_relocations(obj);
 	if (ret < 0)
 	{
-		printf("Can't build relocations: %i\n", ret);
-		if (ret == -ERR_BAD_FORMAT)
-			printf("Unknown code type!\n");
+		printf("Can't build relocations: %s (%i)\n", error_code_str[-ret], ret);
+      return ret;
 	}
 
    // if the output target is not specified, use the input target
