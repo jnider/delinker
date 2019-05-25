@@ -10,6 +10,7 @@ optional header
 #include <stdlib.h>
 #include <time.h>
 #include "backend.h"
+#include "config.h"
 
 #pragma pack(1)
 
@@ -86,6 +87,9 @@ optional header
 #define SCN_MEM_EXECUTE                   (1<<SCN_SHIFT_MEM_EXECUTE) // The section can be executed as code
 #define SCN_MEM_READ                      (1<<SCN_SHIFT_MEM_READ) // The section can be read
 #define SCN_MEM_WRITE                     (1<<SCN_SHIFT_MEM_WRITE) // The section can be written to
+
+#define IMPORT_BY_ORDINAL 0x80000000
+#define IMPORT_HINT_ENTRY_MASK (~IMPORT_BY_ORDINAL)
 
 enum section_flags
 {
@@ -248,14 +252,14 @@ typedef struct symbol
    unsigned char auxsymbols;
 } symbol;
 
-typedef struct import_dir
+typedef struct import_dir_entry
 {
 	unsigned int lu_table;
 	unsigned int timestamp;
 	unsigned int forwarder;
 	unsigned int name;
 	unsigned int addr_table;
-} import_dir;
+} import_dir_entry;
 
 struct machine_name
 {
@@ -362,6 +366,40 @@ const char* pe32_name(void)
 	return "pe32";
 }
 
+static unsigned int read_import_dir(import_dir_entry *d, FILE *f, unsigned int base, backend_section
+*sec, backend_object* obj, backend_section *sec_text, backend_import* mod)
+{
+   char *name; // name of the imported function
+   unsigned int lu;
+
+   printf("Address table @ 0x%x\n", d->addr_table);
+   fseek(f, d->addr_table, SEEK_SET);
+   fread(&lu, sizeof(unsigned int), 1, f);
+   unsigned long val = (unsigned long)sec->address + (d->addr_table - base);
+   printf("Val: 0x%lx\n", val);
+   while (lu)
+   {
+      // if the MSB is set, import by ordinal. Otherwise, import by name
+      if (lu & IMPORT_BY_ORDINAL)
+      {
+         char tmp_name[16];
+         sprintf(tmp_name, "0x%x", lu & 0xFFFF);
+         printf("%s: import by ordinal: %s\n", mod->name, tmp_name);
+      }
+      else
+      {
+         printf("import by name lu=0x%x base=0x%x\n", lu, base);
+         name = (char*)sec->data + ((lu & IMPORT_HINT_ENTRY_MASK) - base) + 2;
+
+         if (config.verbose)
+            fprintf(stderr, "Adding function: %s\n", name);
+         backend_add_import_function(mod, name, val);
+      }
+      backend_add_symbol(obj, name, 0, SYMBOL_TYPE_NONE, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text);
+      fread(&lu, sizeof(unsigned int), 1, f);
+      val += sizeof(unsigned int);
+   }
+}
 
 const char* lookup_machine(unsigned short machine)
 {
@@ -373,6 +411,7 @@ const char* lookup_machine(unsigned short machine)
 
 void dump_coff(coff_header* h)
 {
+   printf("\nCOFF Header\n");
    printf("machine: %s\n", lookup_machine(h->machine));
    printf("num sections: %u\n", h->num_sections);
    time_t creat = h->time_created;
@@ -415,6 +454,7 @@ void dump_optional(optional_header* h, unsigned short state)
 
 void dump_pe32_windows(pe32_windows_header* h)
 {
+   printf("\nPE 32 Windows header\n");
    printf("Base: 0x%x\n", h->base);
    printf("Section alignment: %u\n", h->section_alignment);
    unsigned int file_alignment;
@@ -438,6 +478,7 @@ void dump_pe32_windows(pe32_windows_header* h)
 
 void dump_data_dirs(data_dirs* h)
 {
+   printf("\nData Directories\n");
    printf("Export: 0x%x (%u)\n", h->exports.offset, h->exports.size);
    printf("Import: 0x%x (%u)\n", h->imports.offset, h->imports.size);
    printf("Resource: 0x%x (%u)\n", h->resource.offset, h->resource.size);
@@ -453,6 +494,15 @@ void dump_data_dirs(data_dirs* h)
    printf("Import Address: 0x%x (%u)\n", h->iat.offset, h->iat.size);
    printf("Delay Import: 0x%x (%u)\n", h->delay.offset, h->delay.size);
    printf("CLR Runtime: 0x%x (%u)\n", h->clr.offset, h->clr.size);
+}
+
+void dump_import_dirent(import_dir_entry *d)
+{
+   printf("lu_table=0x%x\n", d->lu_table);
+   //printf("timestamp=0x%x\n", d->timestamp);
+   //printf("forwarder=0x%x\n", d->forwarder);
+   printf("DLL name=0x%x\n", d->name);
+   printf("first thunk=0x%x\n\n", d->addr_table);
 }
 
 static char* coff_symbol_name(symbol* s, char* stringtab)
@@ -503,6 +553,7 @@ void dump_symtab(symbol* symtab, unsigned int count, char* stringtab)
 
 static void dump_sections(section_header* secs, unsigned int nsec)
 {
+   printf("There are %u sections\n", nsec);
    for (unsigned int i=0; i < nsec; i++)
    {
       printf("Index: %i\n", i+1);
@@ -517,7 +568,7 @@ static void dump_sections(section_header* secs, unsigned int nsec)
       for (int f=24; f < 31; f++)
          if (secs[i].flags & (1<<f))
             printf("   - %s\n", section_flags_lookup[f]);
-      printf("Alignment: %i\n", (secs[i].flags >> SCN_SHIFT_ALIGN) & SCN_ALIGN);
+      printf("Alignment: %i\n\n", (secs[i].flags >> SCN_SHIFT_ALIGN) & SCN_ALIGN);
    }
 }
 
@@ -582,6 +633,8 @@ static backend_object* pe_read_file(const char* filename)
 
    // read the coff header
    coff_header ch;
+   int fpos = ftell(f);
+   printf("COFF header @ 0x%x\n", fpos);
    fread(&ch, sizeof(coff_header), 1, f);
    //dump_coff(&ch);
 
@@ -590,6 +643,23 @@ static backend_object* pe_read_file(const char* filename)
 
 	unsigned int entry_offset;
 	unsigned int base_address;
+   backend_arch be_arch;
+
+   switch(ch.machine)
+   {
+   case IMAGE_FILE_MACHINE_ARM:
+      be_arch = OBJECT_ARCH_ARM;
+      break;
+
+   case IMAGE_FILE_MACHINE_ARM64:
+      be_arch = OBJECT_ARCH_ARM64;
+      break;
+
+   case IMAGE_FILE_MACHINE_I386:
+      be_arch = OBJECT_ARCH_X86;
+      break;
+   }
+   backend_set_arch(obj, be_arch);
 
    // read the optional header
    free(buff);
@@ -634,22 +704,23 @@ static backend_object* pe_read_file(const char* filename)
    // read the data directories
    data_dirs* dd = (data_dirs*)malloc(sizeof(data_dirs));
    fread(dd, sizeof(data_dirs), 1, f);
-   dump_data_dirs(dd);
+   //dump_data_dirs(dd);
 
    // read the sections - they are immediately after the optional header
 	char tmp_name[32];
 	unsigned int import_file_base; // file offset of section containing the import info
-	backend_section* import_sec; // pointer to the section containing the import info
-   printf("There are %u sections\n", ch.num_sections);
+   backend_section* import_sec=NULL; // pointer to the section containing the import info
    int sectabsize = sizeof(section_header) * ch.num_sections;
    section_header* secs = (section_header*)malloc(sectabsize);
    fread(secs, sectabsize, 1 ,f);
    //dump_sections(secs, ch.num_sections);
+
    for (unsigned int i=0; i < ch.num_sections; i++)
    {
+      unsigned char* data = (unsigned char*)malloc(secs[i].size_on_disk);
+
       // load the data
       fseek(f, secs[i].data_offset, SEEK_SET);
-      unsigned char* data = (unsigned char*)malloc(secs[i].size_on_disk);
       fread(data, secs[i].size_on_disk, 1, f);
 
       // convert the flags
@@ -672,33 +743,28 @@ static backend_object* pe_read_file(const char* filename)
          flags |= SECTION_FLAG_WRITE;
 
 		strncpy(tmp_name, secs[i].name, 8);
-		printf("Section %s has flags: 0x%x\n", tmp_name, secs[i].flags);
+      tmp_name[8] = 0;
 
 		// update the known names to have a consistent naming in the backend
 		if (strcmp(tmp_name, ".rdata") == 0)
-		{
-			printf("PE: replacing .rdata with .rodata\n");
 			strcpy(tmp_name, ".rodata");
-		}
 
 		// add the backend section
       backend_section* sec = backend_add_section(obj, tmp_name, secs[i].size_in_mem, base_address + secs[i].address, data, 0, (secs[i].flags >> SCN_SHIFT_ALIGN) & SCN_ALIGN, flags);
-
-		// find out which section contains the import names (if we have imports)
-		if (dd->imports.offset && secs[i].data_offset <= dd->imports.offset && secs[i].data_offset +
-secs[i].size_in_mem > dd->imports.offset)
-		{
-			printf("Section %s (base=0x%x) has imports\n", secs[i].name, secs[i].data_offset);
-			import_file_base = secs[i].data_offset;
-			import_sec = sec;
-		}
    }
 
    // read the symbol table
-   int symtabsize = ch.num_symbols * sizeof(symbol);
-   symbol* symtab = (symbol*)malloc(symtabsize);
-   fseek(f, ch.offset_symtab, SEEK_SET);
-   fread(symtab, symtabsize, 1, f);
+   symbol* symtab = NULL;
+   if (ch.offset_symtab && ch.num_symbols)
+   {
+      int symtabsize = ch.num_symbols * sizeof(symbol);
+      symtab = (symbol*)malloc(symtabsize);
+      printf("seeking to 0x%x\n", ch.offset_symtab);
+      fseek(f, ch.offset_symtab, SEEK_SET);
+      fpos = ftell(f);
+      printf("symtab @ 0x%x\n", fpos);
+      fread(symtab, symtabsize, 1, f);
+   }
    // can't dump the symbol table until the string table is read
 
    // read the string table
@@ -762,6 +828,7 @@ secs[i].size_in_mem > dd->imports.offset)
       }
    }
 
+   // find the text section - we'll need it to add symbols
 	backend_section* sec_text = backend_get_section_by_name(obj, ".text");
 	if (!sec_text)
 	{
@@ -769,54 +836,94 @@ secs[i].size_in_mem > dd->imports.offset)
 		goto done;
 	}
 
-	// read the import directory table
-   if (dd->imports.size && dd->imports.offset)
+   backend_import* mod;
+   backend_section *imports_sec=NULL;
+   unsigned int imports_start = base_address + dd->imports.offset;
+
+   if (config.verbose)
+      printf("Imports are at address 0x%x size=0x%x\n", imports_start, dd->imports.size);
+
+   // find out which section contains the import names (if we have imports)
+   if (imports_start)
+      imports_sec = backend_find_section_by_val(obj, imports_start);
+
+   if (imports_sec)
    {
-	   unsigned long next;
-	   import_dir dir;
-	   unsigned int lu;
-   	backend_import* mod;
-	   fseek(f, dd->imports.offset, SEEK_SET);
-   	fread(&dir, sizeof(import_dir), 1, f);
-	   while (dir.lu_table && dir.addr_table)
-   	{
-	   	char* name = (char*)import_sec->data + (dir.name - import_file_base);
-   		//printf("Module: %s Table @ 0x%x\n", name, dir.addr_table);
-	   	mod = backend_add_import_module(obj, name);
-		   next = ftell(f);
+      import_dir_entry *d;
+      unsigned int offset;
 
-   		// read the import address table
-	   	fseek(f, dir.addr_table, SEEK_SET);
-		   fread(&lu, sizeof(unsigned int), 1, f);
-   		unsigned long val = (unsigned long)import_sec->address + (dir.addr_table - import_file_base);
-	   	while (lu)
-		   {
-			   if (lu & 0x80000000)
-   			{
-	   			char tmp_name[10];
+      // The contents of the imports are an "Import Directory Table", followed
+      // by some "DLL Import Lookup Tables" and finally The "Hint-Name Table"
+      // The import directory table is null-terminated, and contains pointers
+      // into the other parts.
 
-		   		sprintf(tmp_name, "0x%x", lu & 0xFFFF);
-			   	backend_add_import_function(mod, name, val);
-			   }
-			   else
-			   {
-   				name = (char*)import_sec->data + ((lu & 0x7FFFFFFF) - import_file_base) + 2;
+      offset = imports_sec->address - base_address;
+      d = (import_dir_entry*)((unsigned long)imports_start - imports_sec->address + imports_sec->data);
 
-	   			//printf("Adding Function: %s\n", name);
-		   		backend_add_import_function(mod, name, val);
-			   	backend_add_symbol(obj, name, 0, SYMBOL_TYPE_NONE, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text);
-			   }
-   			fread(&lu, sizeof(unsigned int), 1, f);
-	   		val += sizeof(unsigned int);
-		   }
+      // iterate over directory table entries
+      while (d->lu_table)
+      {
+         char tmp_name[16];
+         char *import_name;
 
-   		// get the next one
-	   	fseek(f, next, SEEK_SET);
-		   fread(&dir, sizeof(import_dir), 1, f);
-   	}
+         //dump_import_dirent(d);
+
+         if (d->name < offset)
+            printf("WARNING: going negative d->name=0x%x offset=0x%x\n", d->name, offset);
+
+         // calculate the pointer to the module name
+         char* mod_name = (char*)imports_sec->data + (d->name - offset);
+
+         if (d->lu_table < offset)
+            printf("WARNING: going negative d->lu_table=0x%x offset=0x%x\n", d->lu_table, offset);
+
+         // calculate the pointer to the table in memory - each entry is 4 bytes
+         unsigned int *lu_entry = (unsigned int*)(imports_sec->data + (d->lu_table - offset));
+         unsigned int val = imports_sec->address + (d->lu_table - offset);
+
+         if (config.verbose)
+            printf("Module: %s Table @ 0x%x\n", mod_name, d->lu_table - offset);
+
+         // add the module to the backend
+         mod = backend_add_import_module(obj, mod_name);
+
+         // iterate over all functions belonging to this module
+         while (*lu_entry)
+         {
+
+            if (*lu_entry < offset)
+               printf("Warning: lu_entry=0x%x offset=0x%x\n", *lu_entry, offset);
+
+            // if the MSB is set, import by ordinal. Otherwise, import by name
+            if (*lu_entry & IMPORT_BY_ORDINAL)
+            {
+               sprintf(tmp_name, "0x%x", *lu_entry & IMPORT_HINT_ENTRY_MASK);
+               //printf("import by ordinal: %s\n", tmp_name);
+               import_name = tmp_name;
+            }
+            else
+            {
+               unsigned int lu;
+               lu = *lu_entry - offset;
+               import_name = (char*)imports_sec->data + lu + 2;
+               //printf("Name: %s\n", import_name);
+               backend_add_symbol(obj, import_name, 0, SYMBOL_TYPE_NONE, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text);
+            }
+            backend_add_import_function(mod, import_name, val);
+            lu_entry++;
+            val += sizeof(unsigned int);
+         }
+
+         d++;
+      }
+   }
+   else
+   {
+      fprintf(stderr, "Can't find imports section\n");
    }
 
-	// read the debug info
+   // read the debug info
+   printf("checking for debug info\n");
    if (dd->debug.size && dd->debug.offset)
    {
       debug_dir_header ddh;
