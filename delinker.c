@@ -480,10 +480,12 @@ static int build_relocations(backend_object* obj)
 	csh cs_dis;
 	cs_insn *cs_ins;
 	cs_mode cs_mode;
+	cs_arch cs_arch;
 	cs_x86_op *cs_op;
 	reloc_fn *rfn;
 
-	printf("Building relocations\n");
+   if (config.verbose)
+	   fprintf(stderr, "Building relocations\n");
 
    /* find the text section */
    sec_text = backend_get_section_by_name(obj, ".text");
@@ -498,20 +500,30 @@ static int build_relocations(backend_object* obj)
 		cs_mode = CS_MODE_64;
 	else
 		return -ERR_BAD_FORMAT;
-	cs_arch arch = CS_ARCH_X86;
+
+	backend_arch be_arch = backend_get_arch(obj);
+   switch (be_arch)
+   {
+   case OBJECT_ARCH_ARM:
+	   cs_arch = CS_ARCH_ARM;
+      break;
+   case OBJECT_ARCH_ARM64:
+	   cs_arch = CS_ARCH_ARM64;
+      break;
+   case OBJECT_ARCH_X86:
+	   cs_arch = CS_ARCH_X86;
+      break;
+   }
 
 	// pick the correct arch-specific decoder function
-	if (arch == CS_ARCH_X86 && cs_mode == CS_MODE_32)
+	if (cs_arch == CS_ARCH_X86 && cs_mode == CS_MODE_32)
 		rfn = reloc_x86_32;
-	else if (arch == CS_ARCH_X86 && cs_mode == CS_MODE_64)
+	else if (cs_arch == CS_ARCH_X86 && cs_mode == CS_MODE_64)
 		rfn = reloc_x86_64;
 	else
-	{
-		printf("No delink support for that architecture\n");
 		return -ERR_UNSUPPORTED_ARCH;
-	}
 
-	if (cs_open(arch, cs_mode, &cs_dis) != CS_ERR_OK)
+	if (cs_open(cs_arch, cs_mode, &cs_dis) != CS_ERR_OK)
 		return -ERR_CANT_DISASSEMBLE;
 
 	cs_option(cs_dis, CS_OPT_DETAIL, CS_OPT_ON);

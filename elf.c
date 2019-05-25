@@ -10,6 +10,7 @@
 #include <time.h>
 #include "capstone/capstone.h"
 #include "backend.h"
+#include "config.h"
 
 #pragma pack(1)
 
@@ -430,29 +431,29 @@ void dump_elf_header(const char* buf)
 
    if (e64->size == 1)
    {
-      printf("32-bit ELF header\n");
+      fprintf(stderr, "32-bit ELF header\n");
    }
    else if (e64->size == 2)
    {
-      printf("64-bit ELF header\n");
+      fprintf(stderr, "64-bit ELF header\n");
       if (e64->endian == 1)
-         printf("Little endian\n");
+         fprintf(stderr, "Little endian\n");
       else if (e64->endian == 2)
-         printf("Big endian\n");
+         fprintf(stderr, "Big endian\n");
       else
-         printf("Unknown endian %i\n", e64->endian);
-      printf("Version: %i\n", e64->version);
+         fprintf(stderr, "Unknown endian %i\n", e64->endian);
+      fprintf(stderr, "Version: %i\n", e64->version);
    }
    else
    {
-      printf("%i is not a known ELF size\n", e64->size);
+      fprintf(stderr, "%i is not a known ELF size\n", e64->size);
    }
 
-   printf("OS: %s\n", elf_lookup_os((elf_os)e64->os));
-   printf("Type: %s\n", elf_lookup_type((elf_type)e64->type));
-   printf("Machine: %s (%i)\n", elf_lookup_machine(e64->machine), e64->machine);
-   printf("Entry point: 0x%lx\n", e64->entry);
-   printf("Number of program headers: %i\n", e64->ph_num); 
+   fprintf(stderr, "OS: %s\n", elf_lookup_os((elf_os)e64->os));
+   fprintf(stderr, "Type: %s\n", elf_lookup_type((elf_type)e64->type));
+   fprintf(stderr, "Machine: %s (%i)\n", elf_lookup_machine(e64->machine), e64->machine);
+   fprintf(stderr, "Entry point: 0x%lx\n", e64->entry);
+   fprintf(stderr, "Number of program headers: %i\n", e64->ph_num);
 }
 
 void dump_elf64_section(elf64_section* s, const char* strtab)
@@ -564,6 +565,7 @@ static long decode_plt_entry(elf_machine m, const unsigned char* plt_entry)
 {
 	csh cs_dis;
 	cs_mode cs_mode;
+	cs_arch cs_arch;
 	cs_insn *cs_ins;
 	cs_x86_op *cs_op;
 	const uint8_t *pc;
@@ -575,18 +577,29 @@ static long decode_plt_entry(elf_machine m, const unsigned char* plt_entry)
    {
    case ELF_ISA_X86:
 		cs_mode = CS_MODE_32;
+	   cs_arch = CS_ARCH_X86;
       break;
 
    case ELF_ISA_X86_64:
 		cs_mode = CS_MODE_64;
+	   cs_arch = CS_ARCH_X86;
+      break;
+
+   case ELF_ISA_ARM:
+		cs_mode = CS_MODE_32;
+	   cs_arch = CS_ARCH_ARM;
+      break;
+
+   case ELF_ISA_AARCH64:
+		cs_mode = CS_MODE_64;
+	   cs_arch = CS_ARCH_ARM64;
       break;
 
    default:
       return -1;
    }
-	cs_arch arch = CS_ARCH_X86;
 
-	if (cs_open(arch, cs_mode, &cs_dis) != CS_ERR_OK)
+	if (cs_open(cs_arch, cs_mode, &cs_dis) != CS_ERR_OK)
 		return -1;
 
    // decode that entry
@@ -633,6 +646,7 @@ static backend_object* elf32_read_file(FILE* f, elf32_header* h)
 static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 {
    char sym_name[SYMBOL_MAX_LENGTH+1];
+   backend_arch be_arch;
    elf64_section in_sec;
    backend_section* sec_symtab;
    backend_section* sec_dynsym;
@@ -654,10 +668,31 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       return 0;
 
    backend_set_type(obj, OBJECT_TYPE_ELF64);
+   switch (h->machine)
+   {
+   case ELF_ISA_X86:
+      be_arch = OBJECT_ARCH_X86;
+      break;
 
-   printf("Number of section headers: %i\n", h->sh_num); 
-   printf("Size of section headers: %i\n", h->shent_size); 
-   printf("String table index: %i\n", h->sh_str_index);
+   case ELF_ISA_ARM:
+      be_arch = OBJECT_ARCH_ARM;
+      break;
+
+   case ELF_ISA_AARCH64:
+      be_arch = OBJECT_ARCH_ARM64;
+      break;
+
+   default:
+      be_arch = OBJECT_ARCH_UNKNOWN;
+   }
+   backend_set_arch(obj, be_arch);
+
+   if (config.verbose)
+   {
+      fprintf(stderr, "Number of section headers: %i\n", h->sh_num);
+      fprintf(stderr, "Size of section headers: %i\n", h->shent_size);
+      fprintf(stderr, "String table index: %i\n", h->sh_str_index);
+   }
 
 	backend_set_entry_point(obj, h->entry);
 
@@ -897,7 +932,8 @@ static backend_object* elf_read_file(const char* filename)
    if (memcmp(buff, ELF_MAGIC, MAGIC_SIZE) != 0)
       goto done;
    
-   dump_elf_header(buff);
+   if (config.verbose)
+      dump_elf_header(buff);
    
    h = (elf64_header*)buff;
 

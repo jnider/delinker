@@ -145,6 +145,16 @@ backend_type backend_get_type(backend_object* obj)
 	return obj->type;
 }
 
+void backend_set_arch(backend_object* obj, backend_arch a)
+{
+   obj->arch = a;
+}
+
+backend_arch backend_get_arch(backend_object* obj)
+{
+   return obj->arch;
+}
+
 void backend_set_entry_point(backend_object* obj, unsigned long addr)
 {
    if (config.verbose)

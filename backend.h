@@ -29,6 +29,16 @@ typedef enum backend_type
    OBJECT_TYPE_ELF64
 } backend_type;
 
+typedef enum backend_arch
+{
+   OBJECT_ARCH_UNKNOWN,
+   OBJECT_ARCH_ARM,
+   OBJECT_ARCH_ARM64,
+   OBJECT_ARCH_X86,
+   OBJECT_ARCH_MIPS,
+   OBJECT_ARCH_PPC,
+} backend_arch;
+
 typedef enum backend_symbol_type
 {
    SYMBOL_TYPE_NONE,
@@ -106,7 +116,7 @@ typedef struct backend_import
 
 typedef struct backend_object
 {
-	// need to add another variable representing the target architecture (after all, the code is compiled for a particular ISA)
+	backend_arch arch; // the target architecture (after all, the code is compiled for a particular ISA)
    backend_type type; // the file format that should be used when writing the file - this may go away, and become a parameter to backend_write() instead
 	unsigned long entry;	// the entry point for linked files
 
@@ -144,6 +154,8 @@ backend_object* backend_read(const char* filename);
 int backend_write(backend_object* obj, const char* filename);
 void backend_set_type(backend_object* obj, backend_type t);
 backend_type backend_get_type(backend_object* obj);
+void backend_set_arch(backend_object* obj, backend_arch a);
+backend_arch backend_get_arch(backend_object* obj);
 void backend_set_entry_point(backend_object* obj, unsigned long addr);
 unsigned long backend_get_entry_point(backend_object* obj);
 
