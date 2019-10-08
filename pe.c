@@ -609,16 +609,16 @@ static backend_object* pe_read_file(const char* filename)
 
    // read location 0x3C to find the offset of the magic number
    fseek(f, MAGIC_LOCATOR, SEEK_SET);
-   fread(buff, MAGIC_SIZE, 1, f);
-   if (*(unsigned int*)buff >= fsize)
+	if ((fread(buff, MAGIC_SIZE, 1, f) != MAGIC_SIZE) ||
+		(*(unsigned int*)buff >= fsize))
    {
       free(buff);
       return 0;
    }
 
    fseek(f, *(unsigned int*)buff, SEEK_SET);
-   fread(buff, MAGIC_SIZE, 1, f);
-   if (memcmp(buff, PE_MAGIC, 4) != 0)
+   if ((fread(buff, MAGIC_SIZE, 1, f) != MAGIC_SIZE) ||
+		(memcmp(buff, PE_MAGIC, 4) != 0))
    {
       free(buff);
       return 0;
@@ -636,12 +636,14 @@ static backend_object* pe_read_file(const char* filename)
    // read the coff header
    coff_header ch;
    int fpos = ftell(f);
-   printf("COFF header @ 0x%x\n", fpos);
-   fread(&ch, sizeof(coff_header), 1, f);
+   //printf("COFF header @ 0x%x\n", fpos);
+   if (fread(&ch, sizeof(coff_header), 1, f) != sizeof(coff_header))
+		printf("Error reading COFF header\n");
    //dump_coff(&ch);
 
    unsigned short state; // STATE_ID_
-   fread(&state, sizeof(state), 1, f);
+   if (fread(&state, sizeof(state), 1, f) != sizeof(state))
+		printf("Error reading state\n");
 
 	unsigned int entry_offset;
 	unsigned int base_address;
@@ -671,14 +673,16 @@ static backend_object* pe_read_file(const char* filename)
       backend_set_type(obj, OBJECT_TYPE_PE32);
       // read the optional header
       buff = (char*)malloc(sizeof(optional_header));
-      fread(buff, sizeof(optional_header), 1, f);
+		if (fread(buff, sizeof(optional_header), 1, f) != sizeof(optional_header))
+			printf("Error reading optional header\n");
       //dump_optional((optional_header*)buff, state);
 		entry_offset = ((optional_header*)buff)->entry;
 
       // read the windows-specific header
       free(buff);
       buff = (char*)malloc(sizeof(pe32_windows_header));
-      fread(buff, sizeof(pe32_windows_header), 1, f);
+      if (fread(buff, sizeof(pe32_windows_header), 1, f) != sizeof(pe32_windows_header))
+			printf("Error reading windows header\n");
       //dump_pe32_windows((pe32_windows_header*)buff);
 
 		// add generic object information
@@ -705,7 +709,8 @@ static backend_object* pe_read_file(const char* filename)
 
    // read the data directories
    data_dirs* dd = (data_dirs*)malloc(sizeof(data_dirs));
-   fread(dd, sizeof(data_dirs), 1, f);
+	if (fread(dd, sizeof(data_dirs), 1, f) != sizeof(data_dirs))
+		printf("Error reading data directories\n");
    //dump_data_dirs(dd);
 
    // read the sections - they are immediately after the optional header
@@ -714,7 +719,8 @@ static backend_object* pe_read_file(const char* filename)
    backend_section* import_sec=NULL; // pointer to the section containing the import info
    int sectabsize = sizeof(section_header) * ch.num_sections;
    section_header* secs = (section_header*)malloc(sectabsize);
-   fread(secs, sectabsize, 1 ,f);
+	if (fread(secs, sectabsize, 1 ,f) != sectabsize)
+		printf("Error reading section table\n");
    //dump_sections(secs, ch.num_sections);
 
    for (unsigned int i=0; i < ch.num_sections; i++)
@@ -723,7 +729,8 @@ static backend_object* pe_read_file(const char* filename)
 
       // load the data
       fseek(f, secs[i].data_offset, SEEK_SET);
-      fread(data, secs[i].size_on_disk, 1, f);
+		if (fread(data, secs[i].size_on_disk, 1, f) != secs[i].size_on_disk)
+			printf("Error reading section %i\n", i);
 
       // convert the flags
       unsigned int flags=0;
@@ -761,20 +768,24 @@ static backend_object* pe_read_file(const char* filename)
    {
       int symtabsize = ch.num_symbols * sizeof(symbol);
       symtab = (symbol*)malloc(symtabsize);
-      printf("seeking to 0x%x\n", ch.offset_symtab);
+      //printf("seeking to 0x%x\n", ch.offset_symtab);
       fseek(f, ch.offset_symtab, SEEK_SET);
       fpos = ftell(f);
-      printf("symtab @ 0x%x\n", fpos);
-      fread(symtab, symtabsize, 1, f);
+      //printf("symtab @ 0x%x\n", fpos);
+      if (fread(symtab, symtabsize, 1, f) != symtabsize)
+			printf("Error reading symbol table\n");
    }
    // can't dump the symbol table until the string table is read
 
    // read the string table
    int strtabsize=0;
-   fread(&strtabsize, 4, 1, f);
+	if (fread(&strtabsize, 4, 1, f) != 4)
+		printf("Error reading size of string table\n");
+
    //printf("string table is %i bytes long\n", strtabsize);
    char* strtab = (char*)malloc(strtabsize + sizeof(strtabsize));
-   fread(strtab+sizeof(strtabsize), strtabsize, 1, f);
+	if (fread(strtab+sizeof(strtabsize), strtabsize, 1, f) != strtabsize)
+		printf("Error reading string table size\n");
    //dump_symtab(symtab, ch.num_symbols, strtab);
 
    // fill the generic symbol table
@@ -936,7 +947,8 @@ static backend_object* pe_read_file(const char* filename)
       }
 
       fseek(f, dd->debug.offset, SEEK_SET);
-      fread(&ddh, sizeof(ddh), 1, f);
+		if (fread(&ddh, sizeof(ddh), 1, f) != sizeof(ddh))
+			printf("Error reading debug info header\n");
       printf("debug type: %i\n", ddh.type);
       printf("debug size: %i\n", ddh.size);
       printf("debug offset: 0x%x\n", ddh.offset);

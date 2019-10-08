@@ -625,7 +625,8 @@ int elf64_find_section(FILE* f, const elf64_header* h, const char* name, const c
    for (int i=0; i < h->sh_num; i++)
    {
       fseek(f, h->sh_off + h->shent_size * i, SEEK_SET);
-      fread(s, h->shent_size, 1, f);
+		if (fread(s, h->shent_size, 1, f) != h->shent_size)
+			return -2;
 
       if (strcmp(strtab + s->name, name) == 0)
          return i;
@@ -656,12 +657,14 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    backend_section* sec_text;
    backend_section* sec_plt;
    backend_section* sec_rela;
+	backend_section* sec_strtab = NULL;
    elf64_symbol* dsym;
    elf64_symbol* sym;
    elf64_rela* rela;
    unsigned short* ver;
    elf_verneed_header* versymr;
    elf_verneed_entry* verent;
+   char* section_strtab = NULL;
 
    backend_object* obj = backend_create();
    if (!obj)
@@ -698,18 +701,21 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 
    // first, preload the section header string table
    fseek(f, h->sh_off + h->shent_size * h->sh_str_index, SEEK_SET);
-   fread(&in_sec, h->shent_size, 1, f);
+   if (fread(&in_sec, h->shent_size, 1, f) != h->shent_size)
+		goto error;
 
-   char* section_strtab = (char*)malloc(in_sec.size);
+   section_strtab = (char*)malloc(in_sec.size);
    fseek(f, in_sec.offset, SEEK_SET);
-   fread(section_strtab, in_sec.size, 1, f);
+   if (fread(section_strtab, in_sec.size, 1, f) != in_sec.size)
+		goto error_strtab;
    
    //printf("ELF64: Adding sections\n");
    // load sections
    for (int i=1; i < h->sh_num; i++)
    { 
       fseek(f, h->sh_off + h->shent_size * i, SEEK_SET);
-      fread(&in_sec, h->shent_size, 1, f);
+		if (fread(&in_sec, h->shent_size, 1, f) != h->shent_size)
+			goto error_strtab;
 
       char* name = section_strtab + in_sec.name;
       if (!backend_get_section_by_name(obj, name))
@@ -718,7 +724,11 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
          unsigned char* data = (unsigned char*)malloc(in_sec.size);
 
          fseek(f, in_sec.offset, SEEK_SET);
-         fread(data, in_sec.size, 1, f);
+			if (fread(data, in_sec.size, 1, f) != in_sec.size)
+			{
+				free(data);
+				goto error_strtab;
+			}
 
          // set flags for known sections by name
          if (strcmp(name, ".text") == 0)
@@ -745,7 +755,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    }
 
    // now that we have the raw data, try to format it as objects the backend can understand (strings, symbols, sections, relocs, etc)
-   backend_section* sec_strtab = backend_get_section_by_name(obj, ".strtab");
+   sec_strtab = backend_get_section_by_name(obj, ".strtab");
    if (!sec_strtab)
    {
       printf("Can't find string table section!\n");
@@ -897,7 +907,12 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 
       rela++;
    }
-   
+ 
+error_strtab:
+	free(section_strtab);
+error:
+	backend_destructor(obj);
+	return NULL;
 
 done:
    free(section_strtab);
@@ -928,8 +943,8 @@ static backend_object* elf_read_file(const char* filename)
 
    // read enough data for the ELF64 header, and then figure out dynamically which one we've got
    fseek(f, 0, SEEK_SET);
-   fread(buff, sizeof(elf64_header), 1, f);
-   if (memcmp(buff, ELF_MAGIC, MAGIC_SIZE) != 0)
+	if ((fread(buff, sizeof(elf64_header), 1, f) != sizeof(elf64_header)) ||
+		(memcmp(buff, ELF_MAGIC, MAGIC_SIZE) != 0))
       goto done;
    
    if (config.verbose)
