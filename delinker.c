@@ -557,6 +557,7 @@ static int build_relocations(backend_object* obj)
 	cs_free(cs_ins, 1);
 	cs_close(&cs_dis);
 	printf("Done building relocations\n");
+	return 0;
 }
 
 backend_object* set_up_output_file(backend_object* src, const char* filename, backend_type t)
@@ -932,6 +933,8 @@ unlink_file(const char* input_filename, backend_type output_target)
       backend_destructor(oo);
       oo = NULL;
    }
+
+	return 0;
 }
 
 int

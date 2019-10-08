@@ -399,6 +399,8 @@ static unsigned int read_import_dir(import_dir_entry *d, FILE *f, unsigned int b
       fread(&lu, sizeof(unsigned int), 1, f);
       val += sizeof(unsigned int);
    }
+
+	return 0;
 }
 
 const char* lookup_machine(unsigned short machine)
@@ -828,17 +830,17 @@ static backend_object* pe_read_file(const char* filename)
       }
    }
 
-   // find the text section - we'll need it to add symbols
+	// find the text section - we'll need it to add symbols
+	backend_import* mod;
+	backend_section *imports_sec=NULL;
 	backend_section* sec_text = backend_get_section_by_name(obj, ".text");
+	unsigned int imports_start = base_address + dd->imports.offset;
+
 	if (!sec_text)
 	{
 		printf("Can't find code section!\n");
 		goto done;
 	}
-
-   backend_import* mod;
-   backend_section *imports_sec=NULL;
-   unsigned int imports_start = base_address + dd->imports.offset;
 
    if (config.verbose)
       printf("Imports are at address 0x%x size=0x%x\n", imports_start, dd->imports.size);
@@ -1077,7 +1079,7 @@ static int coff_write_file(backend_object* obj, const char* filename)
    return 0;
 }
 
-static const char pe_header[] =
+static const unsigned char pe_header[] =
 {
  0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00,
  0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
