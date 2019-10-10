@@ -625,7 +625,7 @@ int elf64_find_section(FILE* f, const elf64_header* h, const char* name, const c
    for (int i=0; i < h->sh_num; i++)
    {
       fseek(f, h->sh_off + h->shent_size * i, SEEK_SET);
-		if (fread(s, h->shent_size, 1, f) != h->shent_size)
+		if (fread(s, h->shent_size, 1, f) != 1)
 			return -2;
 
       if (strcmp(strtab + s->name, name) == 0)
@@ -701,20 +701,22 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 
    // first, preload the section header string table
    fseek(f, h->sh_off + h->shent_size * h->sh_str_index, SEEK_SET);
-   if (fread(&in_sec, h->shent_size, 1, f) != h->shent_size)
+   if (fread(&in_sec, h->shent_size, 1, f) != 1)
+	{
+		fprintf(stderr, "Error loading string table\n");
 		goto error;
+	}
 
    section_strtab = (char*)malloc(in_sec.size);
    fseek(f, in_sec.offset, SEEK_SET);
-   if (fread(section_strtab, in_sec.size, 1, f) != in_sec.size)
+   if (fread(section_strtab, in_sec.size, 1, f) != 1)
 		goto error_strtab;
    
-   //printf("ELF64: Adding sections\n");
    // load sections
    for (int i=1; i < h->sh_num; i++)
    { 
       fseek(f, h->sh_off + h->shent_size * i, SEEK_SET);
-		if (fread(&in_sec, h->shent_size, 1, f) != h->shent_size)
+		if (fread(&in_sec, h->shent_size, 1, f) != 1)
 			goto error_strtab;
 
       char* name = section_strtab + in_sec.name;
@@ -724,8 +726,9 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
          unsigned char* data = (unsigned char*)malloc(in_sec.size);
 
          fseek(f, in_sec.offset, SEEK_SET);
-			if (fread(data, in_sec.size, 1, f) != in_sec.size)
+			if (fread(data, in_sec.size, 1, f) != 1)
 			{
+				fprintf(stderr, "Error loading sections\n");
 				free(data);
 				goto error_strtab;
 			}
@@ -908,19 +911,18 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       rela++;
    }
  
-error_strtab:
-	free(section_strtab);
-error:
-	backend_destructor(obj);
-	return NULL;
-
 done:
    free(section_strtab);
 
    printf("ELF64 loading done (%i symbols, %i relocs)\n", backend_symbol_count(obj), backend_relocation_count(obj));
    printf("-----------------------------------------\n");
-
    return obj;
+
+error_strtab:
+	free(section_strtab);
+error:
+	backend_destructor(obj);
+	return NULL;
 }
 
 static backend_object* elf_read_file(const char* filename)
@@ -943,9 +945,13 @@ static backend_object* elf_read_file(const char* filename)
 
    // read enough data for the ELF64 header, and then figure out dynamically which one we've got
    fseek(f, 0, SEEK_SET);
-	if ((fread(buff, sizeof(elf64_header), 1, f) != sizeof(elf64_header)) ||
+	if ((fread(buff, sizeof(elf64_header), 1, f) != 1) ||
 		(memcmp(buff, ELF_MAGIC, MAGIC_SIZE) != 0))
+	{
+		if (config.verbose)
+			printf("Error reading elf64 header\n");
       goto done;
+	}
    
    if (config.verbose)
       dump_elf_header(buff);
