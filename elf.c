@@ -14,6 +14,14 @@
 
 #pragma pack(1)
 
+#define DEBUG
+
+#ifdef DEBUG
+#define DEBUG_PRINT printf
+#else
+#define DEBUG_PRINT //
+#endif
+
 #define ALIGN(_x, _y) ((_x + (_y-1)) & ~(_y-1))
 #define ELF_MAGIC "\x7F\x45\x4c\x46"
 #define MAGIC_SIZE 4
@@ -689,6 +697,8 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    default:
       be_arch = OBJECT_ARCH_UNKNOWN;
    }
+   if (config.verbose)
+		fprintf(stderr, "Arch %i\n", be_arch);
    backend_set_arch(obj, be_arch);
 
    if (config.verbose)
@@ -724,14 +734,20 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       if (!backend_get_section_by_name(obj, name))
       {
          unsigned long flags=0;
-         unsigned char* data = (unsigned char*)malloc(in_sec.size);
+			unsigned char* data = NULL;
 
-         fseek(f, in_sec.offset, SEEK_SET);
-			if (fread(data, in_sec.size, 1, f) != 1)
+			// load the section data unless it is marked as unloadable
+			if (!(in_sec.type & SHT_NOBITS))
 			{
-				fprintf(stderr, "Error loading sections\n");
-				free(data);
-				goto error_strtab;
+				data = (unsigned char*)malloc(in_sec.size);
+
+				fseek(f, in_sec.offset, SEEK_SET);
+				if (fread(data, in_sec.size, 1, f) != 1)
+				{
+					fprintf(stderr, "Error loading section %s\n", name);
+					free(data);
+					goto error_strtab;
+				}
 			}
 
          // set flags for known sections by name
@@ -849,18 +865,20 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       printf("Can't find PLT reloc section!\n");
       goto done;
    }
-
    rela = (elf64_rela*)sec_rela->data;
    dsym = (elf64_symbol*)sec_dynsym->data;
    ver = (unsigned short*)sec_versym->data;
    versymr = (elf_verneed_header*)sec_versymr->data;
+	printf ("%p %p %p %p\n", rela, dsym, ver, versymr);
+	if (!rela || !dsym || !ver || !versymr)
+		goto done;
    verent = (elf_verneed_entry*)(sec_versymr->data + versymr->aux);
    for (int i=0; i < sec_rela->size/sec_rela->entry_size; i++)
    {
       // we must look up this symbol by index in the ELF dynamic symbol table
       unsigned long index = ELF64_R_SYM(rela->info);
 
-      //printf("Getting dynsym index=%lu\n", index);
+      DEBUG_PRINT("Getting dynsym index=%lu\n", index);
       dsym = (elf64_symbol*)sec_dynsym->data + index;
       //printf("dynsym @ %p dsym @ %p\n", sec_dynsym->data, dsym);
       if (strlen((char*)sec_dynstr->data + dsym->name) > SYMBOL_MAX_LENGTH)
