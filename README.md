@@ -9,18 +9,25 @@ How does it work?
 -----------------
 After reading in the binary executable file, the delinker performs 'function detection' to restore the function symbols, and then delinks each function by replacing absolute memory references with relocations. The resulting code, data, symbols and relocations are then output to object files.
 
-External libraries
-------------------
-The udis86 library has been replaced with the capstone library. Capstone supports multiple platforms, but otherwise
-works with a similar API to udis86. It is included as a git submodule in this project. You can get the code with:
+How to clone & build
+--------------------
+This project uses git submodules. Therefore, you should clone the project like this:
 ```
-git submodule update --init
+git clone --recurse-submodules https://github.com/jnider/delinker.git
 ```
 
-The advantage of having it as a submodule is that we know its location. That way, we can point to its headers and
-libraries with a feeling of certainty during building/linking/execution. They have a comprehensive help file (in
-capstone/COMPILE.TXT) but basically to build it, you need to:
+External libraries
+------------------
+All external dependencies are included as git submodules. The advantage of having them as submodules is that we know their location at build-time. That way, we can point to its headers and libraries with a feeling of certainty during building/linking/execution. See 'How to clone & build' above for instructions on cloning with submodules.
+
+Capstone
+========
+For disassembly, the udis86 library has been replaced with the capstone library. Capstone supports multiple platforms, but otherwise works with a similar API to udis86. The main Makefile for the delinker will automatically build capstone. However, if the need arises to do any tweaking, they have a comprehensive help file (in capstone/COMPILE.TXT) but basically to build it, you need to:
 ```
 cd capstone
 ./make.sh
 ```
+
+Nucleus
+=======
+Nucleus was selected to replace the built-in function detector. They claim to have very good accuracy, andfairly high speed. Since delinker was originally written in C, it is now being migrated to C++ in order to use nucleus objects directly. The nucleus C++ implementation is a bit primitive, and lacking in places. Because major changes are expected, it has been forked into a separate repository for convenience. It is not expected that all of these changes will be accepted back into the main repository. The integration has not yet been fully tested.
