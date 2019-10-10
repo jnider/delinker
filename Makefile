@@ -1,5 +1,6 @@
-SRC_UNLINKER = delinker.c backend.c pe.c elf.c ll.c
+SRC_UNLINKER = delinker.c backend.c pe.c elf.c ll.c reconstruct.cpp
 OBJS_UNLINKER = $(SRC_UNLINKER:%.c=%.o)
+OBJS_UNLINKER += $(SRC_UNLINKER:%.cpp=%.o)
 
 INCLUDE_PATH = -Icapstone/include -Inucleus
 LIBRARY_PATH = -Lcapstone -Lnucleus

@@ -754,8 +754,8 @@ unlink_file(const char* input_filename, backend_type output_target)
       if (config.verbose)
          fprintf(stderr, "Reconstructing symbols with built-in function detector\n");
 
-		reconstruct_symbols(obj, 1);
-      //nucleus_reconstruct_symbols(obj);
+		//reconstruct_symbols(obj, 1);
+		nucleus_reconstruct_symbols(obj);
 		if (backend_symbol_count(obj) == 0)
 			return -ERR_NO_SYMS_AFTER_RECONSTRUCT;
 	}
