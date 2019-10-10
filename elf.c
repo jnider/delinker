@@ -674,6 +674,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    switch (h->machine)
    {
    case ELF_ISA_X86:
+	case ELF_ISA_X86_64:
       be_arch = OBJECT_ARCH_X86;
       break;
 
