@@ -1168,7 +1168,7 @@ static int pe32_write_file(backend_object* obj, const char* filename)
    {
       section_header sh;
       printf("Writing section %s\n", sec->name);
-      strncpy(sh.name, sec->name, 9); // yes, we want the null to go one past the end of buffer
+      strncpy(sh.name, sec->name, 8);
       sh.size_in_mem = sec->size;
       sh.address = sec->address;
       sh.data_offset = ch.offset_symtab + ch.num_symbols*sizeof(symbol) + 0; // after the string table
