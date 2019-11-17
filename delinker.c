@@ -314,6 +314,50 @@ static backend_symbol* get_data_section_symbol(backend_object* obj, unsigned lon
 	return NULL;
 }
 
+void create_reloc(backend_object *obj, unsigned int* val_ptr)
+{
+	backend_symbol *bs=NULL;
+	backend_section* sec;
+
+	printf("symbol @ 0x%x\n", *val_ptr);
+	sec = backend_find_section_by_val(obj, *val_ptr);
+	if (!sec)
+		return;
+
+	printf("Address 0x%x is in section %s\n", *val_ptr, sec->name);
+	if (strcmp(sec->name, ".text") == 0)
+	{
+		bs = backend_find_symbol_by_val(obj, *val_ptr);
+		if (!bs)
+			printf("Can't find function 0x%x\n", *val_ptr);
+	}
+	else
+	{
+		// make sure this is a data section
+		if ((sec->flags & SECTION_FLAG_INIT_DATA) || (sec->flags & SECTION_FLAG_UNINIT_DATA))
+		{
+			//printf("Section %s has flags 0x%x\n", sec->name, sec->flags);
+			bs = backend_find_symbol_by_name(obj, sec->name);
+			if (!bs)
+			{
+				//printf("Creating section symbol %s\n", sec->name);
+				bs = backend_add_symbol(obj, sec->name, 0, SYMBOL_TYPE_SECTION, 0, 0, NULL);
+			}
+		}
+	}
+	if (bs)
+	{
+		// add a relocation
+		//printf("Creating relocation to %s @ 0x%lx (%li)\n", bs->name, val, val - sec->address);
+		backend_add_relocation(obj, 1, RELOC_TYPE_OFFSET, *val_ptr - sec->address, bs);
+	}
+	else
+	{
+		printf("can't find section symbol for %s\n", sec->name);
+	}
+	*val_ptr = 0;
+}
+
 void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn *cs_ins)
 {
 	const uint8_t *pc = sec->data;
@@ -359,45 +403,7 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 				val_ptr = (unsigned int*)(cs_ins->bytes + 2);
 
 			if (val_ptr)
-			{
-				//printf("val_ptr %p=0x%x\n", val_ptr, *val_ptr);
-				sec = backend_find_section_by_val(obj, *val_ptr);
-				if (!sec)
-					continue;
-
-				//printf("Address 0x%lx is in section %s\n", val, sec->name);
-				if (strcmp(sec->name, ".text") == 0)
-				{
-					bs = backend_find_symbol_by_val(obj, *val_ptr);
-					if (!bs)
-						printf("Can't find function 0x%x\n", *val_ptr);
-				}
-				else
-				{
-					// make sure this is a data section
-					if ((sec->flags & SECTION_FLAG_INIT_DATA) || (sec->flags & SECTION_FLAG_UNINIT_DATA))
-					{
-						//printf("Section %s has flags 0x%x\n", sec->name, sec->flags);
-						bs = backend_find_symbol_by_name(obj, sec->name);
-						if (!bs)
-						{
-							//printf("Creating section symbol %s\n", sec->name);
-							bs = backend_add_symbol(obj, sec->name, 0, SYMBOL_TYPE_SECTION, 0, 0, NULL);
-						}
-					}
-				}
-				if (bs)
-				{
-					// add a relocation
-					//printf("Creating relocation to %s @ 0x%lx (%li)\n", bs->name, val, val - sec->address);
-					backend_add_relocation(obj, 1, RELOC_TYPE_OFFSET, *val_ptr - sec->address, bs);
-				}
-				else
-				{
-					printf("can't find section symbol for %s\n", sec->name);
-				}
-				*val_ptr = 0;
-			}
+				create_reloc(obj, val_ptr);
 			break;
 
 		case X86_INS_JMP:
@@ -465,6 +471,13 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 	size_t n = sec->size;
 
 	printf("Disassembling from 0x%lx to 0x%lx\n", sec->address, sec->address + sec->size);
+	// check to see if there is a symbol at the beginning of the section
+	backend_symbol *s = backend_find_symbol_by_val(obj, sec->address);
+	if (s)
+	{
+		printf("Symbol %s\n", s->name);
+	}
+
 	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
 	{
 		long val;
@@ -473,13 +486,29 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 		backend_symbol *bs=NULL;
 		int opcode_size;
 
-			printf("ins: %s@0x%lx (0x%x) len=%i\n", cs_ins->mnemonic, cs_ins->address, cs_ins->bytes[0], cs_ins->size);
+		//printf("ins: %s@0x%lx (0x%x) len=%i\n", cs_ins->mnemonic, cs_ins->address, cs_ins->bytes[0], cs_ins->size);
 		switch (cs_ins->id)
 		{
 		case X86_INS_MOV:
-				// 48 8b 05 9b 99 5f 00		mov    0x5f999b(%rip),%rax
+			// 48 8b 05 9b 99 5f 00		mov    0x5f999b(%rip),%rax
+			// b8 02 00 1f bb				mov    $0xbb1f0002,%eax
 			break;
+
+		case X86_INS_CALL:
+			printf("call: %s@0x%lx (0x%x) len=%i\n", cs_ins->mnemonic, cs_ins->address, cs_ins->bytes[0], cs_ins->size);
+			// e8 d0 03 00 00       	callq  3f8 <sw_ctx_switch+0x258>
+			if (cs_ins->size == 5 && cs_ins->bytes[0] == 0xe8)
+				val_ptr = (unsigned int*)(cs_ins->bytes + 1);
+
+			// create a relocation for a call instruction
+			if (val_ptr)
+				create_reloc(obj, val_ptr);
+			break;
+
+		//case CALL: // opcode FF
+		// break;
 		}
+
 	}
 }
 
@@ -504,8 +533,8 @@ static int build_relocations(backend_object* obj)
    if (config.verbose)
 	   fprintf(stderr, "Building relocations\n");
 
-   /* find the text section */
-   sec_text = backend_get_section_by_name(obj, ".text");
+   /* find the text sections */
+   sec_text = backend_get_section_by_name(obj, ".text"); // do this by flag, not name
    if (!sec_text)
       return -ERR_NO_TEXT_SECTION;
 
@@ -777,7 +806,7 @@ unlink_file(const char* input_filename, backend_type output_target)
 	}
 
 	// sort the symbol table after reconstruction and building relocations
-	backend_sort_symbols(obj);
+	//backend_sort_symbols(obj);
 
    // get the filenames from the input symbol table
    /* iterate over all symbols in the input table */
