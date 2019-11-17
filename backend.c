@@ -203,6 +203,7 @@ backend_symbol* backend_add_symbol(backend_object* obj, const char* name, unsign
 	s->size = size;
    s->flags = flags;
    s->section = sec;
+	s->src = NULL;
    //printf("Adding %s type=%i size=0x%lx val=0x%lx\n", s->name, s->type, s->size, s->val);
 
 	if (type == SYMBOL_TYPE_SECTION)
@@ -337,6 +338,7 @@ backend_symbol* backend_split_symbol(backend_object* obj, backend_symbol *sym, c
 			s->size = sym->size - newsize;
 			s->flags = flags;
 			s->section = sym->section;
+			s->src = strdup(sym->src);
 			ll_insert(obj->symbol_table, iter, s);
 			sym->size = newsize;
 			return s;
@@ -414,6 +416,7 @@ int backend_remove_symbol_by_name(backend_object* obj, const char* name)
 	{
 		//printf("removing symbol %s\n", bs->name);
 		free(bs->name);
+		free(bs->src);
 		free(bs);
 		return 0;
 	}
@@ -463,6 +466,17 @@ int backend_sort_symbols(backend_object* obj)
 
 	//dump_symbol_table(obj);
 	return 0;
+}
+
+void backend_set_source_file(backend_symbol *s, char *filename)
+{
+	if (!s || !filename)
+		return;
+
+	if (s->src)
+		free(s->src);
+
+	s->src = strdup(filename);
 }
 
 ///////////////////////////////////////////
@@ -585,6 +599,7 @@ void backend_destructor(backend_object* obj)
       {
          //printf("Popped %s\n", s->name);
          free(s->name);
+         free(s->src);
          free(s);
          s = (backend_symbol*)ll_pop(obj->symbol_table);
       }
