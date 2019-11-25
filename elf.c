@@ -27,12 +27,15 @@
 #define MAGIC_SIZE 4
 #define SYMBOL_MAX_LENGTH 127
 
-#define ELF_SYMBOL_GLOBAL 0x0010
-#define ELF_SYMBOL_WEAK 0x0020
+#define ELF_SYMBOL_GLOBAL	0x10
+#define ELF_SYMBOL_WEAK		0x20
 
 #define ELF_SECTION_UNDEF 0
 #define ELF_SECTION_ABS 0xFFF1
 #define ELF_SECTION_COMMON 0xFFF2
+
+#define ELF_SYM_TYPE(_x) (_x & 0xF) // lower 4 bits from the info field
+#define ELF_SYM_SCOPE(_x) ((_x>>4) & 0xF) // upper 4 bits from the info field
 
 #define ELF32_R_SYM(_x) (_x>>8)
 #define ELF32_R_TYPE(_x) (_x & 0xFF)
@@ -673,7 +676,9 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    elf_verneed_header* versymr;
    elf_verneed_entry* verent;
    char* section_strtab = NULL;
+	char *src_file = NULL;
 
+	printf("elf64_read_file\n");
    backend_object* obj = backend_create();
    if (!obj)
       return 0;
@@ -710,6 +715,13 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 
 	backend_set_entry_point(obj, h->entry);
 
+	// validate the size of the section entry struct
+	if (h->shent_size != sizeof(elf64_section))
+	{
+		printf("Size mismatch in section: read %i expected %lu\n",
+			h->shent_size, sizeof(elf64_section));
+	}
+
    // first, preload the section header string table
    fseek(f, h->sh_off + h->shent_size * h->sh_str_index, SEEK_SET);
    if (fread(&in_sec, h->shent_size, 1, f) != 1)
@@ -730,6 +742,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 		if (fread(&in_sec, h->shent_size, 1, f) != 1)
 			goto error_strtab;
 
+		// if a section with this name doesn't already exist, add it
       char* name = section_strtab + in_sec.name;
       if (!backend_get_section_by_name(obj, name))
       {
@@ -737,14 +750,14 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 			unsigned char* data = NULL;
 
 			// load the section data unless it is marked as unloadable
-			if (!(in_sec.type & SHT_NOBITS))
+			if (in_sec.type != SHT_NOBITS)
 			{
 				data = (unsigned char*)malloc(in_sec.size);
 
 				fseek(f, in_sec.offset, SEEK_SET);
 				if (fread(data, in_sec.size, 1, f) != 1)
 				{
-					fprintf(stderr, "Error loading section %s\n", name);
+					fprintf(stderr, "Error loading section %s data\n", name);
 					free(data);
 					goto error_strtab;
 				}
@@ -789,35 +802,87 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       printf("Can't find symbol table section!\n");
       goto done;
    }
+
+	// Add each symbol to the backend object
    sym = (elf64_symbol*)sec_symtab->data;
-   //printf("Symbol table size: %i entry size: %i\n", sec_symtab->size, sec_symtab->entry_size);
-   for (int i=0; i < sec_symtab->size/sec_symtab->entry_size; i++)
-   {
-      if (sym->name)
-      {  
-         backend_section* sec;
-         char* name = (char*)sec_strtab->data + sym->name;
+   for (int i=0; i < sec_symtab->size/sec_symtab->entry_size; i++, sym++)
+	{
+		const char* name = NULL;
+		backend_section* sec = NULL;
+		backend_symbol *s;
+		int symbol_flags=0;
 
-         // try to determine the section that this symbol belongs to
-         if (sym->section_index <= 0 || sym->section_index == ELF_SECTION_ABS || sym->section_index == ELF_SECTION_COMMON)
-         {
-            //printf("Setting NULL section\n");
-            sec = NULL;
-         }
-         else
-            sec = backend_get_section_by_index(obj, sym->section_index);
+		// get the symbol name
+		if (sym->name)
+			name = (char*)sec_strtab->data + sym->name;
 
-         //printf("Symbol %s has section %i (%s)\n", name, sym->section_index, sec?sec->name:NULL);
-         backend_add_symbol(obj, name, sym->value, elf_to_backend_sym_type(sym->info), sym->size, 0, sec);
-      }
-      sym++;
+		switch (ELF_SYM_TYPE(sym->info))
+		{
+		case ELF_ST_NOTYPE:
+			// The first symbol in an ELF file must have no name and no type
+			//printf("Skipping symbol with no type\n");
+			continue;
+
+		case ELF_ST_SECTION:
+			//printf("Skipping section symbol\n");
+			continue;
+
+		case ELF_ST_FILE:
+			// set this as the owning file for subsequent symbols
+			if (src_file)
+				free(src_file);
+			if (!name)
+			{
+				//printf("Found unnamed file symbol\n");
+				name = "_global.c";
+			}
+			//else
+			//	printf("Found file symbol %s\n", name);
+			src_file = strdup(name);
+			break;
+		}
+
+		// try to determine the section that this symbol belongs to
+		if (sym->section_index <= 0 ||
+			sym->section_index == ELF_SECTION_ABS ||
+			sym->section_index == ELF_SECTION_COMMON)
+		{
+			sec = NULL;
+		}
+		else
+		{
+			sec = backend_get_section_by_index(obj, sym->section_index);
+			//printf("Symbol %s is in section %i (%s)\n", name, sym->section_index, sec->name);
+		}
+
+		// set the symbol scope
+		if (ELF_SYM_SCOPE(sym->info) & ELF_SYMBOL_GLOBAL)
+			symbol_flags |= SYMBOL_FLAG_GLOBAL;
+
+		// add the symbol
+		s = backend_add_symbol(obj, name, sym->value, elf_to_backend_sym_type(sym->info), sym->size, symbol_flags, sec);
+		if (!s)
+		{
+			// error adding symbol
+		}
+
+		// Some formats contain information relating symbols to the source file
+		// that originally defined them. If we have that information, save it in
+		// the backend object.
+		if (src_file)
+		{
+			backend_set_source_file(s, src_file);
+			//printf("Adding symbol %s to %s\n", name, src_file);
+		}
+
    }
 
-   // since we are dealing with dynamic symbols, we will need access to the dynamic symbol table, dynamic string table and version tables
+	// Since we are dealing with dynamic symbols, we will need access to the dynamic
+	// symbol table, dynamic string table and version tables
    sec_dynsym = backend_get_section_by_name(obj, ".dynsym");
    if (!sec_dynsym)
    {
-      printf("Can't find .dynsym\n");
+      printf("Can't find dynamic symbol section (.dynsym)\n");
       goto done;
    }
 

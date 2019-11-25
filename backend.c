@@ -547,7 +547,6 @@ backend_section* backend_get_section_by_name(backend_object* obj, const char* na
    for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
    {
       backend_section* sec = (backend_section*)iter->val;
-      //printf(".. %s\n", sec->name);
       if (!strcmp(name, sec->name))
          return sec;
    }

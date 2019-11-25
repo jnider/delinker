@@ -18,9 +18,12 @@ extern int nucleus_reconstruct_symbols(backend_object *obj);
 
 #define DEFAULT_OUTPUT_FILENAME "default.o"
 #define SYMBOL_NAME_MAIN "main"
+#define MAX_FILENAME_LENGTH 31
 
 typedef void (reloc_fn)(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn *cs_ins);
 
+// this must be synchronized with "error_code_str" string table,
+// because these defines are used as a direct index into the table
 enum error_codes
 {
    ERR_NONE,
@@ -28,9 +31,11 @@ enum error_codes
    ERR_BAD_FORMAT,
    ERR_NO_SYMS,
    ERR_NO_SYMS_AFTER_RECONSTRUCT,
+   ERR_NO_SECTION,
    ERR_NO_TEXT_SECTION,
    ERR_NO_PLT_SECTION,
 	ERR_CANT_CREATE_OO,
+	ERR_CANT_WRITE_OO,
 	ERR_UNSUPPORTED_ARCH,
 	ERR_CANT_DISASSEMBLE,
    ERR_NO_MEMORY,
@@ -44,9 +49,11 @@ error_msg error_code_str[] =
    "Bad format",
    "No symbols",
    "No symbols after reconstruction",
+	"No valid section",
    "No .text section",
    "No PLT section",
-   "Can't create oo",
+   "Can't create output file",
+	"Can't write output file",
    "Unsupported architecture",
    "Can't disassemble",
    "Out of memory",
@@ -56,6 +63,7 @@ static struct option options[] =
 {
   {"output-target", required_argument, 0, 'O'},
   {"reconstruct-symbols", no_argument, 0, 'R'},
+  {"symbol-per-file", no_argument, 0, 'S'},
   {"verbose", no_argument, 0, 'v'},
   {0, no_argument, 0, 0}
 };
@@ -71,6 +79,7 @@ usage(void)
    fprintf(stderr, "delinker [OPTIONS] <input file>\n\n");
    fprintf(stderr, "OPTIONS:\n");
    fprintf(stderr, "-R, --reconstruct-symbols\tRebuild the symbol table by various techniques\n");
+   fprintf(stderr, "-S, --symbol-per-file\tCreate a separate .o file for each function\n");
    fprintf(stderr, "-O, --output-target\t\tSpecify the output file format (see supported backend targets below)\n");
    fprintf(stderr, "-v, --verbose\t\t\tPrint lots of information - useful for debugging\n");
    fprintf(stderr, "\nSupported backend targets:\n");
@@ -314,48 +323,76 @@ static backend_symbol* get_data_section_symbol(backend_object* obj, unsigned lon
 	return NULL;
 }
 
-void create_reloc(backend_object *obj, unsigned int* val_ptr)
+int create_reloc(backend_object *obj, unsigned int val)
 {
 	backend_symbol *bs=NULL;
 	backend_section* sec;
 
-	printf("symbol @ 0x%x\n", *val_ptr);
-	sec = backend_find_section_by_val(obj, *val_ptr);
+	// First, find the section that this symbol belongs in
+	sec = backend_find_section_by_val(obj, val);
 	if (!sec)
-		return;
+	{
+		printf("Doesn't seem to have a containing section\n");
+		return -2;
+	}
 
-	printf("Address 0x%x is in section %s\n", *val_ptr, sec->name);
-	if (strcmp(sec->name, ".text") == 0)
-	{
-		bs = backend_find_symbol_by_val(obj, *val_ptr);
-		if (!bs)
-			printf("Can't find function 0x%x\n", *val_ptr);
-	}
-	else
-	{
-		// make sure this is a data section
-		if ((sec->flags & SECTION_FLAG_INIT_DATA) || (sec->flags & SECTION_FLAG_UNINIT_DATA))
-		{
-			//printf("Section %s has flags 0x%x\n", sec->name, sec->flags);
-			bs = backend_find_symbol_by_name(obj, sec->name);
-			if (!bs)
-			{
-				//printf("Creating section symbol %s\n", sec->name);
-				bs = backend_add_symbol(obj, sec->name, 0, SYMBOL_TYPE_SECTION, 0, 0, NULL);
-			}
-		}
-	}
+	// Check to see if this is a known symbol
+	printf("Looking for symbol @ 0x%x\n", val);
+	bs = backend_find_symbol_by_val(obj, val);
 	if (bs)
 	{
 		// add a relocation
-		//printf("Creating relocation to %s @ 0x%lx (%li)\n", bs->name, val, val - sec->address);
-		backend_add_relocation(obj, 1, RELOC_TYPE_OFFSET, *val_ptr - sec->address, bs);
+		printf("Creating relocation to %s @ 0x%x (%li)\n", bs->name, val, val - sec->address);
+		return backend_add_relocation(obj, 1, RELOC_TYPE_OFFSET, val - sec->address, bs);
 	}
 	else
 	{
-		printf("can't find section symbol for %s\n", sec->name);
+		printf("Address 0x%x is in section %s\n", val, sec->name);
+		if (strcmp(sec->name, ".text") == 0) // JKN: we should not be relying on the section name. The code section is called .text by convention, but not mandatory. In fact, there may be more than one code section
+		{
+			printf("Should have a symbol in .text - bad address??\n");
+			return -3;
+		}
+		else
+		{
+			printf("Not in .text - checking for data symbol\n");
+			// make sure this is a data section
+			if ((sec->flags & SECTION_FLAG_INIT_DATA) || (sec->flags & SECTION_FLAG_UNINIT_DATA))
+			{
+				printf("Its a data symbol in section %s with flags 0x%x\n", sec->name, sec->flags);
+				bs = backend_find_symbol_by_name(obj, sec->name);
+				if (!bs)
+				{
+					//printf("Creating section symbol %s\n", sec->name);
+					bs = backend_add_symbol(obj, sec->name, 0, SYMBOL_TYPE_SECTION, 0, 0, NULL);
+				}
+				if (bs)
+				{
+					// add a relocation
+					printf("Creating relocation to %s @ 0x%x (%li)\n", bs->name, val, val - sec->address);
+					return backend_add_relocation(obj, 1, RELOC_TYPE_OFFSET, val - sec->address, bs);
+				}
+			}
+			else
+			{
+				// its not data and not a regular symbol. Maybe its an import
+				printf("Checking for import symbol\n");
+				bs = backend_find_import_by_address(obj, val);
+				if (bs)
+				{
+					printf("Found import symbol %s\n", bs->name);
+					bs = backend_find_symbol_by_name(obj, bs->name);
+					if (bs)
+					{
+						printf("Creating relocation to %s @ 0x%x (%li)\n", bs->name, val, val - sec->address);
+						return backend_add_relocation(obj, val, RELOC_TYPE_PC_RELATIVE, -4, bs);
+					}
+				}
+			}
+		}
 	}
-	*val_ptr = 0;
+
+	return -1;
 }
 
 void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn *cs_ins)
@@ -403,7 +440,7 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 				val_ptr = (unsigned int*)(cs_ins->bytes + 2);
 
 			if (val_ptr)
-				create_reloc(obj, val_ptr);
+				create_reloc(obj, *val_ptr);
 			break;
 
 		case X86_INS_JMP:
@@ -480,8 +517,7 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 
 	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
 	{
-		long val;
-		unsigned int* val_ptr=0;
+		unsigned int val;
 		//unsigned int offset = addr + 1; // offset of the operand
 		backend_symbol *bs=NULL;
 		int opcode_size;
@@ -496,13 +532,31 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 
 		case X86_INS_CALL:
 			printf("call: %s@0x%lx (0x%x) len=%i\n", cs_ins->mnemonic, cs_ins->address, cs_ins->bytes[0], cs_ins->size);
-			// e8 d0 03 00 00       	callq  3f8 <sw_ctx_switch+0x258>
+    		//	e8 d6 fe ff ff       	callq  1030 <printf@plt> 
+			// even though e8 is a relative call, it may call into the PLT
+			// which needs to be replaced since the PLT may not survive
 			if (cs_ins->size == 5 && cs_ins->bytes[0] == 0xe8)
-				val_ptr = (unsigned int*)(cs_ins->bytes + 1);
+			{
+				printf("Found CALL E8 to 0x%x\n", val);
+				int *val_ptr = (int*)(cs_ins->bytes + 1);
+				val = cs_ins->address + *val_ptr + cs_ins->size;
+				if (val)
+				{
+					if (create_reloc(obj, val) == 0)
+					{
+						val_ptr = (int*)((char*)pc - cs_ins->size + 1);
+						*val_ptr = 0;
+					}
+				}
+			}
+    		//	ff 15 66 2f 00 00    	callq  *0x2f66(%rip)        # 3fe0 <__libc_start_main@GLIBC_2.2.5>
+			else if (cs_ins->size == 6 && cs_ins->bytes[0] == 0xff)
+			{
+				//val_ptr = (unsigned int*)(cs_ins->bytes + 2);
+				//printf("Found CALL FF to 0x%x\n", *val_ptr);
+			}
 
 			// create a relocation for a call instruction
-			if (val_ptr)
-				create_reloc(obj, val_ptr);
 			break;
 
 		//case CALL: // opcode FF
@@ -573,7 +627,6 @@ static int build_relocations(backend_object* obj)
 		return -ERR_CANT_DISASSEMBLE;
 
 	cs_option(cs_dis, CS_OPT_DETAIL, CS_OPT_ON);
-	//cs_option(cs_dis, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
 
 	cs_ins = cs_malloc(cs_dis);
 	if(!cs_ins)
@@ -585,7 +638,9 @@ static int build_relocations(backend_object* obj)
 
 	cs_free(cs_ins, 1);
 	cs_close(&cs_dis);
-	printf("Done building relocations\n");
+   if (config.verbose)
+		fprintf(stderr, "Done building relocations\n");
+
 	return 0;
 }
 
@@ -611,7 +666,7 @@ backend_object* set_up_output_file(backend_object* src, const char* filename, ba
 // information that was set up in the input file.
 static int copy_relocations(backend_object* src, backend_object* dest)
 {
-	backend_symbol *sym;
+	backend_symbol *sym, *src_sym;
 	backend_section* sec;
 	int first_function_offset = -1;
  
@@ -630,6 +685,7 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 		if (sym->type == SYMBOL_TYPE_FUNCTION)
 		{
 			first_function_offset = sym->val;
+			printf("First function offset: %s @ %u\n", sym->name, first_function_offset);
 			break;
 		}
 		sym = backend_get_next_symbol(dest);
@@ -645,14 +701,9 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 	backend_reloc* r = backend_get_first_reloc(src);
 	while (r)
 	{
-		//printf("Checking reloc offset=%lx sym=%s\n", r->offset, r->symbol?r->symbol->name:"none");
-		if (!r->symbol)
-		{
-			//printf("can't find symbol in source file - skipping relocation\n");
-			sym = NULL;
-			r = backend_get_next_reloc(src);
-			continue;
-		}
+		src_sym = r->symbol;
+
+		//printf("Checking reloc offset=%lx sym=%s\n", r->offset, src_sym->name);
 
 		if (r->offset < first_function_offset)
 		{
@@ -662,19 +713,33 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 			continue;
 		}
 
-		switch (r->symbol->type)
+		switch (src_sym->type)
 		{
 		case SYMBOL_TYPE_FUNCTION:
 			// if this symbol doesn't exist in the output file, we don't need the relocation information for it
-			printf("Looking for symbol %s\n", r->symbol->name);
-			sym = backend_find_symbol_by_name(dest, r->symbol->name);
+			//printf("Looking for symbol %s\n", src_sym->name);
+			sym = backend_find_symbol_by_name(dest, src_sym->name);
+			if (!sym)
+			{
+				backend_section *sec_text = backend_get_section_by_name(dest, ".text");
+				if (!sec_text)
+				{
+					//printf("can't find symbol in source file - skipping relocation\n");
+					sym = NULL;
+					r = backend_get_next_reloc(src);
+					continue;
+				}
+
+				//printf("Adding symbol %s to section %s\n", src_sym->name, sec_text->name);
+				sym = backend_add_symbol(dest, src_sym->name, 0, src_sym->type, src_sym->size,
+					SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text);
+				//if (!sym)	printf("Can't add symbol %s to output file\n", src_sym->name);
+			}
 			if (sym)
 			{
 				//printf("Adding relocation to symbol %s\n", sym->name);
 				backend_add_relocation(dest, r->offset - first_function_offset, r->type, r->addend, sym);
 			}
-			else
-				printf("Can't find symbol %s in output file\n", r->symbol->name);
 			break;
 
 		case SYMBOL_TYPE_OBJECT:
@@ -683,19 +748,18 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 
 			//printf("Input file has a data relocation to %s\n", r->symbol->name);
 			// if we have a data relocation, we must copy the associated symbol as well
-			sec = backend_get_section_by_name(dest, r->symbol->section->name);
+			sec = backend_get_section_by_name(dest, src_sym->section->name);
 			if (!sec)
 			{
 				//printf("Can't get output section %s\n", r->symbol->section->name);
-         	sec = backend_add_section(dest, r->symbol->section->name, 0, r->symbol->section->address, NULL, 0, r->symbol->section->alignment, r->symbol->section->flags);
+         	sec = backend_add_section(dest, src_sym->section->name, 0, src_sym->section->address, NULL, 0, src_sym->section->alignment, src_sym->section->flags);
 			}
-			sym = backend_find_symbol_by_name(dest, r->symbol->name);
-			if (!sym)
-				printf("Can't find output symbol\n");
+			sym = backend_find_symbol_by_name(dest, src_sym->name);
+			//if (!sym) printf("Can't find output symbol\n");
 			if (sec && !sym)
 			{
 				//printf("Adding symbol %s\n", r->symbol->name);
-				sym = backend_add_symbol(dest, r->symbol->name, r->symbol->val-r->symbol->section->address, r->symbol->type, r->symbol->size, r->symbol->flags, sec);
+				sym = backend_add_symbol(dest, src_sym->name, src_sym->val - src_sym->section->address, src_sym->type, src_sym->size, src_sym->flags, sec);
 			}
 			if (sym)
 			{
@@ -764,14 +828,61 @@ next:
 	return 0;
 }
 
+// write an object file containing a single symbol
+static int write_symbol(backend_object *oo, backend_object *obj, struct backend_symbol *sym, backend_type output_target)
+{
+	backend_section *sec_text;
+	unsigned char *data;
+	unsigned int size;
+	unsigned int flags=SYMBOL_FLAG_GLOBAL; // mark all functions as global
+	unsigned int type=SYMBOL_TYPE_FUNCTION;
+	unsigned long base=0;	// base address to remove from symbol values
+   int len;
+
+	if (!sym)
+		return -ERR_NO_SYMS;
+
+	if (!sym->section)
+	{
+		printf("WARNING: Symbol %s is missing a source section!\n", sym->name);
+		return -ERR_NO_SECTION;
+	}
+
+	// copy the code to the output object
+	size = sym->section->size;
+	data = (unsigned char*)malloc(size);
+	memcpy(data, sym->section->data, size);
+	sec_text = backend_add_section(oo, ".text", size, 0, data, 0, 2, SECTION_FLAG_CODE);
+	base = sym->section->address;
+	// any function with a 0 size is probably an external function (from a library)
+	// even though it is a function, it should be marked as "No type"
+	if (sym->size == 0)
+	{
+		flags |= SYMBOL_FLAG_EXTERNAL;
+		type = SYMBOL_TYPE_NONE;
+	}
+
+	// add the function symbol
+	sym = backend_add_symbol(oo, sym->name, sym->val-base, sym->type, sym->size, flags, sec_text);
+
+	copy_relocations(obj, oo);
+	fixup_function_data(oo);
+	copy_data(obj, oo);
+
+	return 0;
+}
+
 static int
 unlink_file(const char* input_filename, backend_type output_target)
 {
+	backend_object* obj; 
+   backend_object* oo = NULL;
+   char output_filename[MAX_FILENAME_LENGTH+1];
+
+	// read the input file into a generic backend structure
    if (config.verbose)
       fprintf(stderr, "Reading input file %s\n", input_filename);
-
-   backend_object* obj = backend_read(input_filename);
-
+   obj = backend_read(input_filename);
 	if (!obj)
 		return -ERR_BAD_FORMAT;
 
@@ -805,162 +916,51 @@ unlink_file(const char* input_filename, backend_type output_target)
 		//printf("Setting output type to match input: %i\n", output_target);
 	}
 
-	// sort the symbol table after reconstruction and building relocations
-	//backend_sort_symbols(obj);
-
-   // get the filenames from the input symbol table
-   /* iterate over all symbols in the input table */
-	backend_section* sec_text = NULL;
-	backend_section* sec = NULL;
-   backend_object* oo = NULL;
+	// Output symbols to .o files
    backend_symbol* sym = backend_get_first_symbol(obj);
-   char output_filename[24]; // why is this set to 24??
-	unsigned int sec_index=1;
    while (sym)
    {
-      // start by finding a file symbol
-      int len;
-		unsigned int flags=SYMBOL_FLAG_GLOBAL; // mark all functions as global
-		unsigned int type=SYMBOL_TYPE_FUNCTION;
-		unsigned long base=0;	// base address to remove from symbol values
-      switch (sym->type)
-      {
-      case SYMBOL_TYPE_FILE:
-         // if the symbol name ends in .c open a corresponding .o for it
-         //printf("File name: %s\n", sym->name);
-         len = strlen(sym->name);
-         if (sym->name[len-2] != '.' || sym->name[len-1] != 'c')
-         {
-            sym = backend_get_next_symbol(obj);
-            continue;
-         }
-
-			// I have seen the case where the same filename was present more than once (consecutively)
-         if (strncmp(sym->name, output_filename, strlen(output_filename)-2) == 0)
+		if (config.symbol_per_file)
+		{
+			switch (sym->type)
+			{
+			case SYMBOL_TYPE_FILE:
+			case SYMBOL_TYPE_SECTION:
+				// file symbols and section symbols are meta-data
+				// we must ignore any in the backend, and add our own before writing the file
 				break;
 
-			// I have also seen "ghost" files with no name, for no apparent reason
-			if (strlen(sym->name) == 0)
-				break;
+			case SYMBOL_TYPE_FUNCTION:
+				// don't bother outputting any external (empty) functions
+				if (strstr(sym->name, "@@"))
+				{
+					printf("Skipping external function %s\n", sym->name);
+					break;
+				}
 
-         // close previous file by writing data, if the filenames don't match
-         if (oo)
-         {
-            //printf("Closing existing file %s\n", output_filename);
-				copy_relocations(obj, oo);
-				fixup_function_data(oo);
-				copy_data(obj, oo);
-				//backend_sort_symbols(oo);
-            if (backend_write(oo, output_filename))
-					printf("error writing file\n");
-            backend_destructor(oo);
-            oo = NULL;
-				sec_text = NULL;
-         }
-
-         // start a new one
-         strcpy(output_filename, sym->name);
-         output_filename[len-1] = 'o';
-			oo = set_up_output_file(obj, output_filename, output_target);
-         if (!oo)
-            return -ERR_CANT_CREATE_OO;
-         break;
-
-      case SYMBOL_TYPE_SECTION:
-         // create the sections and copy the symbols
-/*
-         printf("Got section %s\n", sym->name);
-         sec = backend_get_section_by_name(obj, sym->name);
-			if (!sec)
-				printf("can't find matching input section\n");
-         printf("Found matching input section %s 0x%x\n", sec->name, sec->address);
-         sec = backend_add_section(oo, sec->name, 0, sec->address, NULL, 0, sec->alignment, sec->flags);
-			if (!sec)
-				printf("Error adding section\n");
-			backend_add_symbol(oo, sec->name, 0, SYMBOL_TYPE_SECTION, 0, 0, sec);
-			printf("done\n");
-*/
-         break;
-
-      case SYMBOL_TYPE_FUNCTION:
-			//printf("Got a function symbol\n");
-
-			// skip any external function
-			//if (sym->flags & SYMBOL_FLAG_EXTERNAL)
-			//{
-				//printf("Skipping external func %s\n", sym->name);
-			//	break;
-			//}
-
-			// skip any symbol that starts with an underscore
-			if (sym->name[0] == '_')
-				break;
-
-			if (sym->section && !sec_text)
-         	sec_text = backend_get_section_by_name(oo, ".text");
-
-			if (sym->section && !sec_text)
-			{
-				unsigned long size=0;
-				unsigned char* data=NULL;
-				//printf("no text section found - creating\n");
-				//printf("Symbol %s points to section %s (%i)\n", sym->name, sym->section->name, sym->section->size);
-
-				// copy the code to the output object
-				size = sym->section->size;
-				data = (unsigned char*)malloc(size);
-				memcpy(data, sym->section->data, size);
-				//printf("Data: %02x %02x %02x %02x\n", data[0]&0xFF, data[1]&0xFF, data[2]&0xFF, data[3]&0xFF);
-        		sec_text = backend_add_section(oo, ".text", size, 0, data, 0, 2, SECTION_FLAG_CODE);
-			}
-
-			// set the base address of functions to 0
-			if (sym->section)
-			{
-				//printf("Symbol %s is in section %s\n", sym->name, sym->section->name);
-				base = sym->section->address;
-			}
-
-         //printf("Found function %s @ 0x%lx + 0x%lx (size:%lu)\n", sym->name, base, sym->val-base, sym->size);
-
-			// any function with a 0 size is probably an external function (from a library)
-			// even though it is a function, it should be marked as "No type"
-			if (sym->size == 0)
-			{
-				flags |= SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL;
-				type = SYMBOL_TYPE_NONE;
-			}
-
-			// make sure there is an output file object to add the symbol to
-			if (!oo)
-			{
-				strcpy(output_filename, DEFAULT_OUTPUT_FILENAME);
+				// set up output file
+				strncpy(output_filename, sym->name, MAX_FILENAME_LENGTH-2); // leave 2 chars for ".o"
+				strncat(output_filename, ".o", MAX_FILENAME_LENGTH);
 				oo = set_up_output_file(obj, output_filename, output_target);
 				if (!oo)
 					return -ERR_CANT_CREATE_OO;
+
+				//printf("Writing symbol %s to file %s\n", sym->name, output_filename);
+				write_symbol(oo, obj, sym, output_target);
+
+				// close output file
+				if (backend_write(oo, output_filename))
+				{
+					backend_destructor(oo);
+					return -ERR_CANT_WRITE_OO;
+				}
+				backend_destructor(oo);
+				oo = NULL;
+				break;
 			}
+		}
 
-         // add function symbols to the output symbol table
-			if (!backend_add_symbol(oo, sym->name, sym->val-base, (backend_symbol_type)type, sym->size, flags, sec_text))
-				printf("Error while adding symbol %s\n", sym->name);
-         break;
-      }
-   
       sym = backend_get_next_symbol(obj);
-   }
-
-   // write data to file
-   if (oo)
-   {
-   	//printf("Writing file %s\n", output_filename);
-		copy_relocations(obj, oo);
-		fixup_function_data(oo);
-		copy_data(obj, oo);
-		//backend_sort_symbols(oo);
-      if (backend_write(oo, output_filename))
-			printf("Error writing file\n");
-      backend_destructor(oo);
-      oo = NULL;
    }
 
 	return 0;
@@ -985,7 +985,7 @@ main (int argc, char *argv[])
    int c;
    while (1)
    {
-      c = getopt_long (argc, argv, "O:Rv", options, 0);
+      c = getopt_long (argc, argv, "O:RSv", options, 0);
       if (c == -1)
       break;
 
@@ -998,6 +998,10 @@ main (int argc, char *argv[])
       case 'R':
          config.reconstruct_symbols = 1;
          break;
+
+		case 'S':
+			config.symbol_per_file = true;
+			break;
 
       case 'v':
          config.verbose = 1;
