@@ -564,6 +564,38 @@ elf_x86_64_reloc_type backend_to_elf64_reloc_type(backend_reloc_type t)
    return R_AMD64_NONE;
 }
 
+backend_section_type elf_to_backend_section_type(section_type t)
+{
+	switch(t)
+	{
+   case SHT_NULL:
+		return SECTION_TYPE_NULL;
+   case SHT_PROGBITS:
+		return SECTION_TYPE_PROG;
+   case SHT_SYMTAB:
+		return SECTION_TYPE_SYMTAB;
+   case SHT_STRTAB:
+		return SECTION_TYPE_STRTAB;
+   case SHT_RELA:
+		return SECTION_TYPE_RELOC;
+   case SHT_HASH:
+		return SECTION_TYPE_NULL;
+   case SHT_DYNAMIC:
+		return SECTION_TYPE_RELOC;
+   case SHT_NOTE:
+		return SECTION_TYPE_NULL;
+   case SHT_NOBITS:
+		return SECTION_TYPE_NULL;
+   case SHT_REL:
+		return SECTION_TYPE_RELOC;
+   case SHT_SHLIB:
+		return SECTION_TYPE_NULL;
+   case SHT_DYNSYM:
+		return SECTION_TYPE_SYMTAB;
+	}
+	return SECTION_TYPE_NULL;
+}
+
 int elf_reloc_addend(elf_x86_64_reloc_type t)
 {
    if (t == R_AMD64_PC32)
@@ -764,9 +796,10 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 			}
 
          // set flags for known sections by name
+			backend_section_type t;
          if (strcmp(name, ".text") == 0)
             flags = SECTION_FLAG_CODE;
-         if (strcmp(name, ".init") == 0)
+         else if (strcmp(name, ".init") == 0)
             flags = SECTION_FLAG_CODE;
          else if (strcmp(name, ".data") == 0)
             flags = SECTION_FLAG_INIT_DATA;
@@ -783,7 +816,9 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
             if (in_sec.flags & SHF_ALLOC && !(in_sec.flags & SHF_EXECINSTR)) // not exactly accurate - better to set these flags according to section name
                flags = SECTION_FLAG_UNINIT_DATA;
          }
-         backend_add_section(obj, name, in_sec.size, in_sec.addr, data, in_sec.entsize, in_sec.addralign, flags);
+
+         backend_section *s = backend_add_section(obj, name, in_sec.size, in_sec.addr, data, in_sec.entsize, in_sec.addralign, flags);
+			backend_section_set_type(s, elf_to_backend_section_type((section_type)in_sec.type));
       }
    }
 
@@ -952,7 +987,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
          sym_name[SYMBOL_MAX_LENGTH] = 0;
       }
       strncpy(sym_name, (char*)sec_dynstr->data + dsym->name, SYMBOL_MAX_LENGTH);
-      //printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
+      printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
 
       backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_EXTERNAL, sec_text);
       

@@ -502,6 +502,7 @@ backend_section* backend_add_section(backend_object* obj, const char* name, unsi
 	if (!s)
 		return NULL;
 
+	memset(s, 0, sizeof(backend_section));
    s->name = strdup(name);
    s->size = size;
    s->address = address;
@@ -513,6 +514,12 @@ backend_section* backend_add_section(backend_object* obj, const char* name, unsi
    ll_add(obj->section_table, s);
    //printf("There are %i sections\n", backend_section_count(obj));
    return s;
+}
+
+void backend_section_set_type(backend_section *s, backend_section_type t)
+{
+	if (s)
+		s->type = t;
 }
 
 backend_section* backend_get_section_by_index(backend_object* obj, unsigned int index)
@@ -584,6 +591,29 @@ backend_section* backend_get_next_section(backend_object* obj)
    obj->iter_section = obj->iter_section->next; 
    if (obj->iter_section)
       return (backend_section*)obj->iter_section->val;
+   return NULL;
+}
+
+backend_section* backend_get_first_section_by_type(backend_object* obj, backend_section_type t)
+{
+   if (!obj->section_table)
+      return NULL;
+   obj->iter_section = ll_iter_start(obj->section_table);
+	while (obj->iter_section && ((backend_section*)obj->iter_section->val)->type != t)
+		obj->iter_section = obj->iter_section->next;
+
+   if (obj->iter_section)
+		return (backend_section*)obj->iter_section->val;
+   return NULL;
+}
+
+backend_section* backend_get_next_section_by_type(backend_object* obj, backend_section_type t)
+{
+	while (obj->iter_section && ((backend_section*)obj->iter_section->val)->type != t)
+		obj->iter_section = obj->iter_section->next;
+
+   if (obj->iter_section)
+		return (backend_section*)obj->iter_section->val;
    return NULL;
 }
 

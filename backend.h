@@ -60,6 +60,17 @@ typedef enum backend_section_flag
 	SECTION_FLAG_SHIFT_WRITE
 } backend_section_flag;
 
+/* Generic section types - these are not finalized by any means */
+typedef enum backend_section_type
+{
+	SECTION_TYPE_NULL,	// Null sections are common in ELF files
+	SECTION_TYPE_PROG,	// Contains executable code, data or tables required during execution
+	SECTION_TYPE_SYMTAB,	// Symbol table
+	SECTION_TYPE_STRTAB,	// String table
+	SECTION_TYPE_RELOC,	// Relocation table
+	// version table, constructors, destructors, many more missing
+} backend_section_type;
+
 typedef enum backend_symbol_flag
 {
 	SYMBOL_FLAG_SHIFT_GLOBAL,
@@ -79,7 +90,8 @@ typedef struct backend_section
    char* name;
    unsigned int size;
    unsigned long address;	// base address for loading this section
-   unsigned int flags; // see SECTION_FLAG_
+   unsigned int flags;		// see SECTION_FLAG_
+	unsigned int type;		// see SECTION_TYPE_
    unsigned char* data;
    unsigned int alignment; // 2**x
 	unsigned int entry_size;
@@ -182,12 +194,15 @@ void backend_set_source_file(backend_symbol *s, char *source_filename);
 unsigned int backend_section_count(backend_object* obj);
 backend_section* backend_add_section(backend_object* obj, const char* name, unsigned long size, unsigned long address,
    unsigned char* data, unsigned int entry_size, unsigned int alignment, unsigned long flags);
+void backend_section_set_type(backend_section *s, backend_section_type t);
 backend_section* backend_find_section_by_val(backend_object* obj, unsigned long val);
 backend_section* backend_get_section_by_index(backend_object* obj, unsigned int index);
 backend_section* backend_get_section_by_name(backend_object* obj, const char* name);
 int backend_get_section_index_by_name(backend_object* obj, const char* name);
 backend_section* backend_get_first_section(backend_object* obj);
 backend_section* backend_get_next_section(backend_object* obj);
+backend_section* backend_get_first_section_by_type(backend_object* obj, backend_section_type t);
+backend_section* backend_get_next_section_by_type(backend_object* obj, backend_section_type t);
 
 // relocations
 unsigned int backend_relocation_count(backend_object* obj);
