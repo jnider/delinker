@@ -323,7 +323,7 @@ static backend_symbol* get_data_section_symbol(backend_object* obj, unsigned lon
 	return NULL;
 }
 
-int create_reloc(backend_object *obj, unsigned int val)
+int create_reloc(backend_object *obj, unsigned int val, int offset)
 {
 	backend_symbol *bs=NULL;
 	backend_section* sec;
@@ -342,52 +342,57 @@ int create_reloc(backend_object *obj, unsigned int val)
 	if (bs)
 	{
 		// add a relocation
-		printf("Creating relocation to %s @ 0x%x (%li)\n", bs->name, val, val - sec->address);
-		return backend_add_relocation(obj, 1, RELOC_TYPE_OFFSET, val - sec->address, bs);
+		printf("Creating relocation to %s @ 0x%x\n", bs->name, offset);
+		return backend_add_relocation(obj, 1, RELOC_TYPE_OFFSET, offset, bs);
 	}
 	else
 	{
-		printf("Address 0x%x is in section %s\n", val, sec->name);
-		if (strcmp(sec->name, ".text") == 0) // JKN: we should not be relying on the section name. The code section is called .text by convention, but not mandatory. In fact, there may be more than one code section
+		printf("No known symbol for 0x%x but it is in section %s\n", val, sec->name);
+
+		// JKN: we should not be relying on the section name. The code section is
+		// called .text by convention, but not mandatory. In fact, there may be more than one code section
+		if (strcmp(sec->name, ".text") == 0)
 		{
-			printf("Should have a symbol in .text - bad address??\n");
+			printf("Should have a symbol in .text - bad address or bad instruction??\n");
 			return -3;
+		}
+
+		printf("Checking for data symbol\n");
+		// make sure this is a data section
+		if ((sec->flags & SECTION_FLAG_INIT_DATA) || (sec->flags & SECTION_FLAG_UNINIT_DATA))
+		{
+			printf("Its a data symbol in section %s with flags 0x%x\n", sec->name, sec->flags);
+			bs = backend_find_symbol_by_name(obj, sec->name);
+			if (!bs)
+			{
+				//printf("Creating section symbol %s\n", sec->name);
+				bs = backend_add_symbol(obj, sec->name, 0, SYMBOL_TYPE_SECTION, 0, 0, NULL);
+			}
+			if (bs)
+			{
+				// add a relocation
+				printf("Creating relocation to %s @offset 0x%x\n", bs->name, offset);
+				return backend_add_relocation(obj, 1, RELOC_TYPE_OFFSET, offset, bs);
+			}
 		}
 		else
 		{
-			printf("Not in .text - checking for data symbol\n");
-			// make sure this is a data section
-			if ((sec->flags & SECTION_FLAG_INIT_DATA) || (sec->flags & SECTION_FLAG_UNINIT_DATA))
+			// its not data and not a regular symbol. Maybe its an import
+			printf("Checking for import symbol\n");
+			bs = backend_find_import_by_address(obj, val);
+			if (bs)
 			{
-				printf("Its a data symbol in section %s with flags 0x%x\n", sec->name, sec->flags);
-				bs = backend_find_symbol_by_name(obj, sec->name);
-				if (!bs)
-				{
-					//printf("Creating section symbol %s\n", sec->name);
-					bs = backend_add_symbol(obj, sec->name, 0, SYMBOL_TYPE_SECTION, 0, 0, NULL);
-				}
+				printf("Found import symbol %s\n", bs->name);
+				bs = backend_find_symbol_by_name(obj, bs->name);
 				if (bs)
 				{
-					// add a relocation
-					printf("Creating relocation to %s @ 0x%x (%li)\n", bs->name, val, val - sec->address);
-					return backend_add_relocation(obj, 1, RELOC_TYPE_OFFSET, val - sec->address, bs);
+					printf("Creating PC_REL relocation to %s @offset 0x%x\n", bs->name, offset);
+					return backend_add_relocation(obj, offset, RELOC_TYPE_PC_RELATIVE, -4, bs);
 				}
 			}
 			else
 			{
-				// its not data and not a regular symbol. Maybe its an import
-				printf("Checking for import symbol\n");
-				bs = backend_find_import_by_address(obj, val);
-				if (bs)
-				{
-					printf("Found import symbol %s\n", bs->name);
-					bs = backend_find_symbol_by_name(obj, bs->name);
-					if (bs)
-					{
-						printf("Creating relocation to %s @ 0x%x (%li)\n", bs->name, val, val - sec->address);
-						return backend_add_relocation(obj, val, RELOC_TYPE_PC_RELATIVE, -4, bs);
-					}
-				}
+				printf("Ignoring bad instruction\n");
 			}
 		}
 	}
@@ -440,7 +445,7 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 				val_ptr = (unsigned int*)(cs_ins->bytes + 2);
 
 			if (val_ptr)
-				create_reloc(obj, *val_ptr);
+				create_reloc(obj, *val_ptr, cs_ins->address+2);
 			break;
 
 		case X86_INS_JMP:
@@ -507,17 +512,19 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 	uint64_t pc_addr = sec->address;
 	size_t n = sec->size;
 
-	printf("Disassembling from 0x%lx to 0x%lx\n", sec->address, sec->address + sec->size);
+	printf("x86_64: Disassembling from 0x%lx to 0x%lx\n", sec->address, sec->address + sec->size);
 	// check to see if there is a symbol at the beginning of the section
+/*
 	backend_symbol *s = backend_find_symbol_by_val(obj, sec->address);
 	if (s)
 	{
 		printf("Symbol %s\n", s->name);
 	}
+*/
 
 	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
 	{
-		unsigned int val;
+		unsigned int val=0;
 		//unsigned int offset = addr + 1; // offset of the operand
 		backend_symbol *bs=NULL;
 		int opcode_size;
@@ -531,18 +538,18 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 			break;
 
 		case X86_INS_CALL:
-			printf("call: %s@0x%lx (0x%x) len=%i\n", cs_ins->mnemonic, cs_ins->address, cs_ins->bytes[0], cs_ins->size);
+			//printf("call: %s@0x%lx (0x%x) len=%i\n", cs_ins->mnemonic, cs_ins->address, cs_ins->bytes[0], cs_ins->size);
     		//	e8 d6 fe ff ff       	callq  1030 <printf@plt> 
 			// even though e8 is a relative call, it may call into the PLT
 			// which needs to be replaced since the PLT may not survive
 			if (cs_ins->size == 5 && cs_ins->bytes[0] == 0xe8)
 			{
-				printf("Found CALL E8 to 0x%x\n", val);
 				int *val_ptr = (int*)(cs_ins->bytes + 1);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
 				if (val)
 				{
-					if (create_reloc(obj, val) == 0)
+					printf("Found CALL E8 to 0x%x @ 0x%lx\n", val, cs_ins->address);
+					if (create_reloc(obj, val, cs_ins->address+1 - sec->address) == 0)
 					{
 						val_ptr = (int*)((char*)pc - cs_ins->size + 1);
 						*val_ptr = 0;
@@ -587,11 +594,6 @@ static int build_relocations(backend_object* obj)
    if (config.verbose)
 	   fprintf(stderr, "Building relocations\n");
 
-   /* find the text sections */
-   sec_text = backend_get_section_by_name(obj, ".text"); // do this by flag, not name
-   if (!sec_text)
-      return -ERR_NO_TEXT_SECTION;
-
 	// make sure we are using the right decoder
 	backend_type t = backend_get_type(obj);
 	if (t == OBJECT_TYPE_ELF32 || t == OBJECT_TYPE_PE32)
@@ -601,44 +603,64 @@ static int build_relocations(backend_object* obj)
 	else
 		return -ERR_BAD_FORMAT;
 
-	backend_arch be_arch = backend_get_arch(obj);
-   switch (be_arch)
-   {
-   case OBJECT_ARCH_ARM:
-	   cs_arch = CS_ARCH_ARM;
-      break;
-   case OBJECT_ARCH_ARM64:
-	   cs_arch = CS_ARCH_ARM64;
-      break;
-   case OBJECT_ARCH_X86:
-	   cs_arch = CS_ARCH_X86;
-      break;
-   }
-
-	// pick the correct arch-specific decoder function
-	if (cs_arch == CS_ARCH_X86 && cs_mode == CS_MODE_32)
-		rfn = reloc_x86_32;
-	else if (cs_arch == CS_ARCH_X86 && cs_mode == CS_MODE_64)
-		rfn = reloc_x86_64;
-	else
-		return -ERR_UNSUPPORTED_ARCH;
-
-	if (cs_open(cs_arch, cs_mode, &cs_dis) != CS_ERR_OK)
-		return -ERR_CANT_DISASSEMBLE;
-
-	cs_option(cs_dis, CS_OPT_DETAIL, CS_OPT_ON);
-
-	cs_ins = cs_malloc(cs_dis);
-	if(!cs_ins)
+   /* find the text sections */
+   sec_text = backend_get_section_by_name(obj, ".text"); // do this by flag, not name
+   if (!sec_text)
+      return -ERR_NO_TEXT_SECTION;
+	
+	while (sec_text)
 	{
-		return -ERR_NO_MEMORY;
+		printf("Building relocations for section %s\n", sec_text->name);
+
+		// The architecture selection is inside the while loop because it
+		// should read the arch type from the section rather than the object.
+		// I don't think any backends support this right now, but with fat binaries
+		// starting to appear, it is likely that we will see a single binary
+		// file with different code segments for different architectures
+		backend_arch be_arch = backend_get_arch(obj);
+		switch (be_arch)
+		{
+		case OBJECT_ARCH_ARM:
+			cs_arch = CS_ARCH_ARM;
+			break;
+		case OBJECT_ARCH_ARM64:
+			cs_arch = CS_ARCH_ARM64;
+			break;
+		case OBJECT_ARCH_X86:
+			cs_arch = CS_ARCH_X86;
+			break;
+		default:
+			continue;	// don't know about this architecture
+		}
+
+		// pick the correct arch-specific decoder function
+		if (cs_arch == CS_ARCH_X86 && cs_mode == CS_MODE_32)
+			rfn = reloc_x86_32;
+		else if (cs_arch == CS_ARCH_X86 && cs_mode == CS_MODE_64)
+			rfn = reloc_x86_64;
+		else
+			return -ERR_UNSUPPORTED_ARCH;
+
+		if (cs_open(cs_arch, cs_mode, &cs_dis) != CS_ERR_OK)
+			return -ERR_CANT_DISASSEMBLE;
+
+		cs_option(cs_dis, CS_OPT_DETAIL, CS_OPT_ON);
+
+		cs_ins = cs_malloc(cs_dis);
+		if(!cs_ins)
+			return -ERR_NO_MEMORY;
+
+		rfn(obj, sec_text, cs_dis, cs_ins);
+
+		cs_free(cs_ins, 1);
+		cs_close(&cs_dis);
+
+		// get the next .text section
+   	//sec_text = backend_get_next_section_by_flag(obj, ".text"); // do this by flag, not name
+		sec_text = NULL;
 	}
 
-	rfn(obj, sec_text, cs_dis, cs_ins);
-
-	cs_free(cs_ins, 1);
-	cs_close(&cs_dis);
-   if (config.verbose)
+  	if (config.verbose)
 		fprintf(stderr, "Done building relocations\n");
 
 	return 0;
