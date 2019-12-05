@@ -245,7 +245,7 @@ backend_symbol* backend_find_symbol_by_val(backend_object* obj, unsigned long va
 	{
 		bs = (backend_symbol*)iter->val;
 		//printf("** %s 0x%lx\n", bs->name, bs->val);
-		if (bs->val == val)
+		if (val >= bs->val && val < (bs->val + bs->size))
 			return bs;
 	}
 
@@ -418,7 +418,6 @@ int backend_remove_symbol_by_name(backend_object* obj, const char* name)
 	bs = (backend_symbol*)ll_remove(obj->symbol_table, name, cmp_by_name);
 	if (bs)
 	{
-		//printf("removing symbol %s\n", bs->name);
 		free(bs->name);
 		free(bs->src);
 		free(bs);
