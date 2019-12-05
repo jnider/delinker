@@ -356,6 +356,32 @@ int create_reloc(backend_object *obj, unsigned int val, int offset)
 			printf("Should have a symbol in .text - bad address or bad instruction??\n");
 			return -3;
 		}
+		else if (strcmp(sec->name, ".plt") == 0)
+		{
+			// Maybe it has an import symbol
+			printf("Checking for import symbol\n");
+			bs = backend_find_import_by_address(obj, val);
+			if (bs)
+			{
+				printf("Found import symbol %s\n", bs->name);
+				bs = backend_find_symbol_by_name(obj, bs->name);
+				if (bs)
+				{
+					printf("Creating PC_REL relocation to %s @offset 0x%x\n", bs->name, offset);
+					return backend_add_relocation(obj, offset, RELOC_TYPE_PC_RELATIVE, -4, bs);
+				}
+			}
+			else
+			{
+				printf("Missing import symbol - looks bad.\n");
+				return -5;
+			}
+		}
+		else if (strcmp(sec->name, ".plt.got") == 0)
+		{
+			printf("Not sure what to do with .plt.got symbols. They are dynamic but don't have an import??\n");
+			return -4;
+		}
 
 		printf("Checking for data symbol\n");
 		// make sure this is a data section
@@ -377,23 +403,7 @@ int create_reloc(backend_object *obj, unsigned int val, int offset)
 		}
 		else
 		{
-			// its not data and not a regular symbol. Maybe its an import
-			printf("Checking for import symbol\n");
-			bs = backend_find_import_by_address(obj, val);
-			if (bs)
-			{
-				printf("Found import symbol %s\n", bs->name);
-				bs = backend_find_symbol_by_name(obj, bs->name);
-				if (bs)
-				{
-					printf("Creating PC_REL relocation to %s @offset 0x%x\n", bs->name, offset);
-					return backend_add_relocation(obj, offset, RELOC_TYPE_PC_RELATIVE, -4, bs);
-				}
-			}
-			else
-			{
-				printf("Ignoring bad instruction\n");
-			}
+			printf("Ignoring bad instruction\n");
 		}
 	}
 
@@ -549,7 +559,8 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 				if (val)
 				{
 					printf("Found CALL E8 to 0x%x @ 0x%lx\n", val, cs_ins->address);
-					if (create_reloc(obj, val, cs_ins->address+1 - sec->address) == 0)
+//					if (create_reloc(obj, val, cs_ins->address+1 - sec->address) == 0)
+					if (create_reloc(obj, val, cs_ins->address+1) == 0)
 					{
 						val_ptr = (int*)((char*)pc - cs_ins->size + 1);
 						*val_ptr = 0;
@@ -681,18 +692,53 @@ backend_object* set_up_output_file(backend_object* src, const char* filename, ba
 	return oo;
 }
 
+/* check to see if we need this relocation in the output file 
+   It depends on if it is covered by a symbol in the src file
+	that also exists in the dest file */
+static inline int need_reloc(backend_reloc *r, backend_object *src, backend_object *dest)
+{
+	backend_symbol* besym;
+	backend_symbol* sym;
+
+	printf("Looking for a symbol that covers address 0x%lx\n", r->offset);
+	besym = backend_find_symbol_by_val(src, r->offset);
+	if (besym)
+	{
+		printf("Address 0x%lx is covered by symbol %s: 0x%lx to 0x%lx\n", r->offset,
+			besym->name, besym->val, besym->val + besym->size);
+
+		sym = backend_find_symbol_by_name(dest, besym->name);
+		if (!sym)
+		{
+			printf("Symbol '%s' doesn't exist in output file - skipping reloc\n", besym->name);
+			return -1;
+		}
+	}
+	else
+	{
+		printf("Strange - this relocation doesn't seem to be covered by any symbol in the src file\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 // We set up relocations in the source file when it is read in, since that is when we have all of the
 // relevant information available. Once the symbols & code are divided into separate object files, it
 // is much harder to reconcile jumps between various files since the base addresses are all reset to
 // 0. That means when we write out the individual object files, we must copy any relevant relocation
 // information that was set up in the input file.
+// Those relocations are relative to the beginning of the section that they belonged to in the original
+// file, so those offsets should be updated if any functions move around in the output file.
 static int copy_relocations(backend_object* src, backend_object* dest)
 {
-	backend_symbol *sym, *src_sym;
+	backend_symbol *dest_target; // symbol in output file that copied relocation points to
+	backend_symbol *target; // symbol that the relocation points to
 	backend_section* sec;
 	int first_function_offset = -1;
  
-	printf("Copy relocations - src has %u\n", backend_relocation_count(src));
+	printf("Copying relocations\n");
+	printf("Source file has %u relocs\n", backend_relocation_count(src));
 
 	if (check_function_sequence(dest) != 0)
 	{
@@ -700,75 +746,56 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 		return -1;
 	}
 
-	// find the first function, and remember its offset
-	sym = backend_get_first_symbol(dest);
-	while (sym)
-	{
-		if (sym->type == SYMBOL_TYPE_FUNCTION)
-		{
-			first_function_offset = sym->val;
-			printf("First function offset: %s @ %u\n", sym->name, first_function_offset);
-			break;
-		}
-		sym = backend_get_next_symbol(dest);
-	}
-
-	if (first_function_offset == -1)
-	{
-		printf("No functions found in this output file - no need to copy relocations\n");
-		return 0;
-	}
-
 	// copy the relocations to the output object, and match the symbols to the output symbol table
 	backend_reloc* r = backend_get_first_reloc(src);
 	while (r)
 	{
-		src_sym = r->symbol;
+		target = r->symbol;
+		printf("Checking reloc @offset=%lx to symbol %s\n", r->offset, target->name);
 
-		//printf("Checking reloc offset=%lx sym=%s\n", r->offset, src_sym->name);
-
-		if (r->offset < first_function_offset)
+		// If this relocation isn't covered by a symbol in the output file, we don't need it
+		// First, find which symbol the relocation belongs to (not points at) in the source
+		// file. Then see if that symbol made it into this output file.
+		if (need_reloc(r, src, dest) == 0)
 		{
-			//printf("Before first code - skipping relocation\n");
-			sym = NULL;
-			r = backend_get_next_reloc(src);
-			continue;
+			dest_target = backend_find_symbol_by_name(dest, target->name);
+			if (!dest_target)
+			{
+				printf("Adding symbol %s to section .text\n", target->name);
+				dest_target = backend_add_symbol(dest, target->name, 0, target->type, target->size,
+					SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, backend_get_section_by_name(dest, ".text"));
+				if (!dest_target)
+				{
+					printf("Can't add symbol %s to output file\n", target->name);
+					break;
+				}
+			}
+
+			backend_symbol *besym = backend_find_symbol_by_val(src, r->offset);
+			if (besym)
+			{
+				printf("Using symbol %s: 0x%lx to 0x%lx\n",
+					besym->name, besym->val, besym->val + besym->size);
+			}
+
+			// calculate the relocation offset from start of symbol (instead of from start of file)
+			unsigned int offset = r->offset - besym->val;
+
+			printf("Adding relocation to symbol %s\n", dest_target->name);
+			backend_add_relocation(dest, offset, r->type, r->addend, dest_target);
 		}
 
+/*
 		switch (src_sym->type)
 		{
 		case SYMBOL_TYPE_FUNCTION:
-			// if this symbol doesn't exist in the output file, we don't need the relocation information for it
-			//printf("Looking for symbol %s\n", src_sym->name);
-			sym = backend_find_symbol_by_name(dest, src_sym->name);
-			if (!sym)
-			{
-				backend_section *sec_text = backend_get_section_by_name(dest, ".text");
-				if (!sec_text)
-				{
-					//printf("can't find symbol in source file - skipping relocation\n");
-					sym = NULL;
-					r = backend_get_next_reloc(src);
-					continue;
-				}
-
-				//printf("Adding symbol %s to section %s\n", src_sym->name, sec_text->name);
-				sym = backend_add_symbol(dest, src_sym->name, 0, src_sym->type, src_sym->size,
-					SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text);
-				//if (!sym)	printf("Can't add symbol %s to output file\n", src_sym->name);
-			}
-			if (sym)
-			{
-				//printf("Adding relocation to symbol %s\n", sym->name);
-				backend_add_relocation(dest, r->offset - first_function_offset, r->type, r->addend, sym);
-			}
 			break;
 
 		case SYMBOL_TYPE_OBJECT:
 			if (r->offset < first_function_offset)
 				break;
 
-			//printf("Input file has a data relocation to %s\n", r->symbol->name);
+			printf("Input file has a data relocation to %s\n", r->symbol->name);
 			// if we have a data relocation, we must copy the associated symbol as well
 			sec = backend_get_section_by_name(dest, src_sym->section->name);
 			if (!sec)
@@ -810,6 +837,7 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 			}
 			break;
 		}
+*/
 
 		r = backend_get_next_reloc(src);
 	}
