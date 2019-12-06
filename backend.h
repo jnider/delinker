@@ -153,6 +153,9 @@ typedef struct backend_ops
    int (*write)(backend_object* obj, const char* filename);
 } backend_ops;
 
+// backend-specific sorting comparator
+typedef int(*backend_cmpfunc)(void* item_a, void* item_b);
+
 // global operations
 int backend_init(void); /* initialize the library for use - don't call any functions before this one */
 void backend_register(backend_ops* be); /* register specific backend implementation so it is known to the library */
@@ -187,7 +190,7 @@ backend_symbol* backend_find_nearest_symbol(backend_object* obj, unsigned long v
 unsigned int backend_get_symbol_index(backend_object* obj, backend_symbol* s); // if the symbol table were to be serialized, what would be the index of this symbol in the table?
 backend_symbol* backend_split_symbol(backend_object* obj, backend_symbol *sym, const char* name, unsigned long val, backend_symbol_type type, unsigned int flags);
 int backend_remove_symbol_by_name(backend_object* obj, const char* name);
-int backend_sort_symbols(backend_object* obj);
+int backend_sort_symbols(backend_object* obj, backend_cmpfunc cmp);
 void backend_set_source_file(backend_symbol *s, char *source_filename);
 
 // sections

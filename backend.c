@@ -427,47 +427,56 @@ int backend_remove_symbol_by_name(backend_object* obj, const char* name)
 	return -2;
 }
 
-int backend_sort_symbols(backend_object* obj)
+int backend_sort_symbols(backend_object* obj, backend_cmpfunc cmp)
 {
-	//printf("Sorting symbols\n");
+	printf("backend sorting symbols\n");
+	if (!obj || !obj->symbol_table)
+		return -1;
 
-   if (!obj || !obj->symbol_table)
-      return 0;
+	// create an empty list to hold the sorted elements
+	linked_list *new_table = ll_init();
 
-	// assume the first symbol is not a section
-	list_node* temp = NULL;
-	list_node* insert = NULL;
-	list_node* prev = obj->symbol_table->head;
-	list_node* n = prev->next;
-	while (n)
+	// iterate over the original elements
+   for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
 	{
-		if (((backend_symbol*)n->val)->type == SYMBOL_TYPE_SECTION)
+		backend_symbol *bs = (backend_symbol*)iter->val;
+		printf("Sorting %s 0x%lx\n", bs->name, bs->val);
+
+		// find its insertion point in the new list
+		list_node *ii;
+		list_node* i=0; // we will insert after 'i'
+
+		for (ii = new_table->head; ii != NULL; i=ii,ii=ii->next)
 		{
-			//printf("Section symbol %s\n", ((backend_symbol*)n->val)->name);
-
-			// extract the node
-			temp = n;
-			prev->next = n->next;
-
-			// insert it sorted
-			if (!insert)
+			backend_symbol *ss = (backend_symbol*)ii->val;
+			if (cmp(bs, ss) < 0)
 			{
-				temp->next = obj->symbol_table->head;
-				obj->symbol_table->head = temp;
-				insert = temp;
-			}
-			else
-			{
-				temp->next = insert->next;
-				insert = temp;
-				insert = insert->next;
+				printf("Inserting %s before %s\n", bs->name, ss->name);
+
+				if (!i)
+					ll_push(new_table, bs);
+				else
+					ll_insert(new_table, i, bs);
+				break;
 			}
 		}
-		prev = n;
-		n = n->next;
+		if (ii == NULL)
+		{
+			printf("Adding %s to new table\n", bs->name);
+			ll_add(new_table, bs);
+		}
+		printf("New table now has %u items\n", ll_size(new_table));
 	}
 
-	//dump_symbol_table(obj);
+	// save the old one temporarily
+	linked_list * lltmp = obj->symbol_table;
+
+	// set the new list in its place
+	obj->symbol_table = new_table;
+
+	// delete the old list
+	ll_destroy(lltmp);
+
 	return 0;
 }
 
