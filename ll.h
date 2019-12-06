@@ -18,6 +18,7 @@ typedef struct linked_list
 typedef int(*ll_cmpfunc)(void* list_item, const void* your_item);
 
 linked_list* ll_init(void);
+void ll_destroy(linked_list *ll);
 unsigned int ll_size(const linked_list* ll);
 void ll_add(linked_list* ll, void* val); // adds an item to the tail of the list
 void* ll_remove(linked_list* ll, const void* data, ll_cmpfunc cmp); // find an item with a user-defined comparator, and remove it from the list

@@ -11,6 +11,12 @@ linked_list* ll_init(void)
    return ll;
 }
 
+void ll_destroy(linked_list *ll)
+{
+	while(ll_pop(ll));
+	free(ll);
+}
+
 unsigned int ll_size(const linked_list* ll)
 {
    return ll->count;
@@ -80,8 +86,10 @@ void* ll_pop(linked_list* ll)
 	list_node* tmp = ll->head;
 	ll->head = ll->head->next;
 	ll->count--;
+	void *val = tmp->val;
+	free(tmp);
 
-	return tmp->val;
+	return val;
 }
 
 const list_node* ll_iter_start(const linked_list* ll)
