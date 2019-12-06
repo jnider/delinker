@@ -327,6 +327,7 @@ int create_reloc(backend_object *obj, unsigned int val, int offset)
 {
 	backend_symbol *bs=NULL;
 	backend_section* sec;
+	static int data_symbols;
 
 	// First, find the section that this symbol belongs in
 	sec = backend_find_section_by_val(obj, val);
@@ -387,18 +388,15 @@ int create_reloc(backend_object *obj, unsigned int val, int offset)
 		// make sure this is a data section
 		if ((sec->flags & SECTION_FLAG_INIT_DATA) || (sec->flags & SECTION_FLAG_UNINIT_DATA))
 		{
-			printf("Its a data symbol in section %s with flags 0x%x\n", sec->name, sec->flags);
-			bs = backend_find_symbol_by_name(obj, sec->name);
-			if (!bs)
-			{
-				//printf("Creating section symbol %s\n", sec->name);
-				bs = backend_add_symbol(obj, sec->name, 0, SYMBOL_TYPE_SECTION, 0, 0, NULL);
-			}
+			char name[6];
+			snprintf(name, 6, ".L%i", data_symbols++);
+			printf("Adding symbol %s at %lx to section %s\n", name, val - sec->address, sec->name);
+			bs = backend_add_symbol(obj, name, val - sec->address, SYMBOL_TYPE_NONE, 0, 0, sec);
 			if (bs)
 			{
 				// add a relocation
-				printf("Creating relocation to %s @offset 0x%x\n", bs->name, offset);
-				return backend_add_relocation(obj, 1, RELOC_TYPE_OFFSET, offset, bs);
+				printf("Creating PC_REL relocation to %s @offset 0x%x\n", bs->name, offset);
+				return backend_add_relocation(obj, offset, RELOC_TYPE_PC_RELATIVE, -4, bs);
 			}
 		}
 		else
@@ -542,13 +540,26 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 		//printf("ins: %s@0x%lx (0x%x) len=%i\n", cs_ins->mnemonic, cs_ins->address, cs_ins->bytes[0], cs_ins->size);
 		switch (cs_ins->id)
 		{
+		case X86_INS_LEA:
+			// 48 8d 3d 89 0f 00 00 	lea    0xf89(%rip),%rdi
+			if (cs_ins->size == 7 && cs_ins->bytes[0] == 0x48 && cs_ins->bytes[1] == 0x8d &&
+				(cs_ins->bytes[2] == 0x3d || cs_ins->bytes[2] == 0x35)) // we only want rsi or rdi targets
+			{
+				//int *val_ptr = (int*)(cs_ins->bytes + 3);
+				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
+				val = cs_ins->address + *val_ptr + cs_ins->size;
+				printf("Found LEA rsi/rdi to 0x%x @ 0x%lx\n", val, cs_ins->address);
+				if (create_reloc(obj, val, cs_ins->address+3) == 0)
+					*val_ptr = 0;
+			}
+			break;
+
 		case X86_INS_MOV:
 			// 48 8b 05 9b 99 5f 00		mov    0x5f999b(%rip),%rax
 			// b8 02 00 1f bb				mov    $0xbb1f0002,%eax
 			break;
 
 		case X86_INS_CALL:
-			//printf("call: %s@0x%lx (0x%x) len=%i\n", cs_ins->mnemonic, cs_ins->address, cs_ins->bytes[0], cs_ins->size);
     		//	e8 d6 fe ff ff       	callq  1030 <printf@plt> 
 			// even though e8 is a relative call, it may call into the PLT
 			// which needs to be replaced since the PLT may not survive
@@ -556,15 +567,11 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 			{
 				int *val_ptr = (int*)(cs_ins->bytes + 1);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
-				if (val)
+				printf("Found CALL E8 to 0x%x @ 0x%lx\n", val, cs_ins->address);
+				if (create_reloc(obj, val, cs_ins->address+1) == 0)
 				{
-					printf("Found CALL E8 to 0x%x @ 0x%lx\n", val, cs_ins->address);
-//					if (create_reloc(obj, val, cs_ins->address+1 - sec->address) == 0)
-					if (create_reloc(obj, val, cs_ins->address+1) == 0)
-					{
-						val_ptr = (int*)((char*)pc - cs_ins->size + 1);
-						*val_ptr = 0;
-					}
+					val_ptr = (int*)((char*)pc - cs_ins->size + 1);
+					*val_ptr = 0;
 				}
 			}
     		//	ff 15 66 2f 00 00    	callq  *0x2f66(%rip)        # 3fe0 <__libc_start_main@GLIBC_2.2.5>
@@ -761,9 +768,17 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 			dest_target = backend_find_symbol_by_name(dest, target->name);
 			if (!dest_target)
 			{
-				printf("Adding symbol %s to section .text\n", target->name);
+				backend_section *dest_sec = backend_get_section_by_name(dest, target->section->name);
+				if (!dest_sec)
+				{
+					// Add the missing section and section symbol
+					dest_sec = backend_add_section(dest, target->section->name, 0, target->section->address,
+						NULL, 0, target->section->alignment, target->section->flags);
+					backend_add_symbol(dest, target->name, 0, SYMBOL_TYPE_SECTION, target->size, 0, 0);
+				}
+				printf("Adding symbol %s to section %s\n", target->name, target->section->name);
 				dest_target = backend_add_symbol(dest, target->name, 0, target->type, target->size,
-					SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, backend_get_section_by_name(dest, ".text"));
+					target->flags, dest_sec);
 				if (!dest_target)
 				{
 					printf("Can't add symbol %s to output file\n", target->name);
