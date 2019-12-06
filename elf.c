@@ -1318,17 +1318,20 @@ static int elf32_write_file(backend_object* obj, const char* filename)
          sh.link = backend_get_section_index_by_name(obj, ".strtab"); // which string table to use
          if (sh.link == -1)
             printf("Error getting .symtab index\n");
+
          // info contains the index of the first non-local symbol
-         sym = backend_get_symbol_by_type_first(obj, SYMBOL_TYPE_FUNCTION);
-         if (sym)
+			sh.info=1; // start at 1 because of the null symbol
+         sym = backend_get_first_symbol(obj);
+         while (sym)
          {
-            sh.info = backend_get_symbol_index(obj, sym) + 1; // add 1 for the null symbol
-            printf("First global symbol index %i\n", sh.info);
+            sh.info++;
+				sym = backend_get_next_symbol(obj);
          }
+			printf("First global symbol index %i\n", sh.info);
 
          //printf("symtab index=%i\n", sh.link);
          sh.entsize = sizeof(elf32_symbol);
-         sh.size = (backend_symbol_count(obj) + 1) * sizeof(elf32_symbol); // add 1 for the null symbol
+			sh.size = (backend_symbol_count(obj) + 1) * sizeof(elf32_symbol); // add 1 for the null symbol
          sh.addralign = 8;
          if (sh.size)
          {
@@ -1452,6 +1455,93 @@ done:
    free(strtab);
    fclose(f);
    return 0;
+}
+
+#define IS_NULL_SYMBOL(_x) (\
+	(_x->type == SYMBOL_TYPE_NONE) && \
+	(_x->size == 0) && \
+	(_x->val == 0) && \
+	(_x->name[0] == 0))
+
+/* Used to compare two symbols when sorting symbol table
+   in order to write them to an ELF object file */
+static int elfcmp(void* item_a, void* item_b)
+{
+	backend_symbol *a = (backend_symbol*)item_a;
+	backend_symbol *b = (backend_symbol*)item_b;
+
+	printf("Comparing %s to %s\n", a->name, b->name);
+
+	// ELF symbol ordering is like this:
+	// 1. A null symbol (singleton)
+	// 2. File symbol for this object file (singleton)
+	// 3. Section symbols (local)
+	// 4. Other locals (can sometimes intermingle with sections)
+	// 5. global functions
+	// 6. other globals
+
+	// check to see if it is a null symbol. If so, it doesn't matter
+	// what B is, because null symbols are all the same (actually there
+	// should only be 1) and they must come before any other symbol.
+	if (IS_NULL_SYMBOL(a))
+	{
+		printf("null symbol\n");
+		return 0;
+	}
+
+	// if A is a file symbol, it must come after any null symbols,
+	// but before anything else.
+	else if (a->type == SYMBOL_TYPE_FILE)
+	{
+		printf("file symbol\n");
+		if (IS_NULL_SYMBOL(b))
+			return 1;
+		else if (b->type == SYMBOL_TYPE_FILE)
+			return 0;
+		else
+			return -1;
+	}
+
+	// All section symbols come after the file symbol. They are
+	// considered equal, and sometimes their indices are out of
+	// order (which is legal, but bothers me).
+	else if (a->type == SYMBOL_TYPE_SECTION)
+	{
+		printf("section symbol\n");
+		if (IS_NULL_SYMBOL(b))
+			return 1;
+		else if (b->type == SYMBOL_TYPE_FILE)
+			return 1;
+		else if (b->type == SYMBOL_TYPE_SECTION)
+		{
+			return 0;
+		}
+		else
+			return -1;
+	}
+
+	else if (!(a->flags & SYMBOL_FLAG_GLOBAL))
+	{
+		printf("local symbol\n");
+		if (!(b->flags & SYMBOL_FLAG_GLOBAL))
+			return 0;
+		return -1;
+	}
+	else
+	{
+		if (!(b->flags & SYMBOL_FLAG_GLOBAL))
+			return 1;
+		if (a->type == SYMBOL_TYPE_FUNCTION)
+		{
+			if (b->type == SYMBOL_TYPE_FUNCTION)
+				return 0;
+			else
+				return -1;
+		}
+		return -1;
+	}
+
+	return 0;
 }
 
 static int elf64_write_file(backend_object* obj, const char* filename)
@@ -1681,17 +1771,11 @@ static int elf64_write_file(backend_object* obj, const char* filename)
          sh.link = backend_get_section_index_by_name(obj, ".strtab"); // which string table to use
          if (sh.link == -1)
             printf("Error getting .symtab index\n");
-         // info contains the index of the first non-local symbol
-         sym = backend_get_symbol_by_type_first(obj, SYMBOL_TYPE_FUNCTION);
-         if (sym)
-         {
-            sh.info = backend_get_symbol_index(obj, sym) + 1; // add 1 for the null symbol
-            printf("First global symbol index %i\n", sh.info);
-         }
+         // sh.info contains the index of the first non-local symbol
 
          //printf("symtab index=%i\n", sh.link);
          sh.entsize = sizeof(elf64_symbol);
-         sh.size = (backend_symbol_count(obj) + 1) * sizeof(elf64_symbol); // add 1 for the null symbol
+			sh.size = (backend_symbol_count(obj) + 1) * sizeof(elf64_symbol); // add 1 for the null symbol
          sh.addralign = 8;
          if (sh.size)
          {
@@ -1699,54 +1783,51 @@ static int elf64_write_file(backend_object* obj, const char* filename)
             fpos_data = ALIGN(fpos_data, sh.addralign);
             sh.offset = fpos_data;
             fpos_cur = ftell(f);
-            printf("We have %u symbols\n", backend_symbol_count(obj)+1);
             fseek(f, sh.offset, SEEK_SET);
       
+				// Sort the symbols into ELF ordering (null, sections, other locals, globals)
+				backend_sort_symbols(obj, elfcmp);
+
             // write an empty symbol first
             fwrite(&s, sizeof(elf64_symbol), 1, f);
+				sh.info++;
 
-            // now the rest of the symbols
-            sym = backend_get_first_symbol(obj);
-            while (sym)
-            {
-               s.name = strtab_entry - strtab;
-               s.info = backend_to_elf_sym_type(sym->type);
-               s.other = 0;
-               s.section_index = text_index; // link the symbol to the .text section
-               s.value = sym->val;
-               s.size = sym->size;
-
+				sym = backend_get_first_symbol(obj);
+				while (sym)
+				{
                //printf("Writing symbol %s\n", sym->name);
 
-               // take into account any flags set in the backend
-               if (sym->flags & SYMBOL_FLAG_GLOBAL)
-                  s.info |= ELF_SYMBOL_GLOBAL;
-               if (sym->flags & SYMBOL_FLAG_EXTERNAL)
-                  s.section_index = ELF_SECTION_UNDEF;
+					s.name = strtab_entry - strtab;
+					s.info = backend_to_elf_sym_type(sym->type);
+					s.other = 0;
+					s.section_index = ELF_SECTION_UNDEF;
+					s.value = sym->val;
+					s.size = sym->size;
+
+					if (sym->flags & SYMBOL_FLAG_GLOBAL)
+					{
+						s.info |= ELF_SYMBOL_GLOBAL;
+					}
+					else
+					{
+						sh.info++;
+					}
+
+					// if the symbol points to a section and is not external, set the index
+					if (sym->section && !(sym->flags & SYMBOL_FLAG_EXTERNAL))
+					{
+						printf("Getting index for section %s for symbol %s\n", sym->section->name, sym->name);
+						s.section_index = backend_get_section_index_by_name(obj, sym->section->name);
+					}
+               if (sym->type == SYMBOL_TYPE_FILE)
+                  s.section_index = ELF_SECTION_ABS;
 
                // if this is an external function, it can't have an address
                if (sym->type == SYMBOL_TYPE_NONE &&
                   sym->flags & (SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL))
                   s.value = 0;
 
-               // if this is a section symbol, make sure the index is updated to the correct section
-               if (sym->type == SYMBOL_TYPE_SECTION)
-               {
-                  //printf("Writing section symbol %s\n", sym->name);
-                  s.section_index = backend_get_section_index_by_name(obj, sym->name); // which section does this symbol relate to
-                  if (s.section_index == -1)
-                  {
-                     printf("Error getting %s index\n", sym->name);
-                     sym = backend_get_next_symbol(obj);
-                     continue;
-                  }
-                  //sym->name = 0;
-                  //s.name = 0;
-               }
-
-               if (sym->type == SYMBOL_TYPE_FILE)
-                  s.section_index = ELF_SECTION_ABS;
-
+					// set the name to point to the string table
                if (sym->name)
                {
                   if (strtab_entry - strtab + strlen(sym->name) > strtab_size)
@@ -1760,9 +1841,12 @@ static int elf64_write_file(backend_object* obj, const char* filename)
                   strcpy(strtab_entry, sym->name);
                   strtab_entry += strlen(strtab_entry) + 1;
                }
+
                fwrite(&s, sizeof(elf64_symbol), 1, f);
-               sym = backend_get_next_symbol(obj);
+					sym = backend_get_next_symbol(obj);
             }
+
+				printf("First global symbol index %i\n", sh.info);
             fseek(f, fpos_cur, SEEK_SET);
             fpos_data += sh.size;
          }
