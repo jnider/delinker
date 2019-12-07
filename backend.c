@@ -429,7 +429,6 @@ int backend_remove_symbol_by_name(backend_object* obj, const char* name)
 
 int backend_sort_symbols(backend_object* obj, backend_cmpfunc cmp)
 {
-	printf("backend sorting symbols\n");
 	if (!obj || !obj->symbol_table)
 		return -1;
 
@@ -440,7 +439,6 @@ int backend_sort_symbols(backend_object* obj, backend_cmpfunc cmp)
    for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
 	{
 		backend_symbol *bs = (backend_symbol*)iter->val;
-		printf("Sorting %s 0x%lx\n", bs->name, bs->val);
 
 		// find its insertion point in the new list
 		list_node *ii;
@@ -451,8 +449,6 @@ int backend_sort_symbols(backend_object* obj, backend_cmpfunc cmp)
 			backend_symbol *ss = (backend_symbol*)ii->val;
 			if (cmp(bs, ss) < 0)
 			{
-				printf("Inserting %s before %s\n", bs->name, ss->name);
-
 				if (!i)
 					ll_push(new_table, bs);
 				else
@@ -461,11 +457,7 @@ int backend_sort_symbols(backend_object* obj, backend_cmpfunc cmp)
 			}
 		}
 		if (ii == NULL)
-		{
-			printf("Adding %s to new table\n", bs->name);
 			ll_add(new_table, bs);
-		}
-		printf("New table now has %u items\n", ll_size(new_table));
 	}
 
 	// save the old one temporarily
