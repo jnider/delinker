@@ -1,5 +1,5 @@
 /* General layout: https://en.wikipedia.org/wiki/Executable_and_Linkable_Format */
-/* 32-bit layout: http://www.cs.cmu.edu/afs/cs/academic/class/15213-s00/doc/elf.pdf */
+/* 32-bit layout: http://www.cs.cmu.edu/afs/cs/academic/class/15213-s00/docs/elf.pdf */
 /* 64-bit layout: https://www.uclibc.org/docs/elf-64-gen.pdf */
 /* x86_64 Relocation types: https://docs.oracle.com/cd/E19120-01/open.solaris/819-0690/chapter7-2/index.html */
 /* PPC64 extension: http://refspecs.linuxfoundation.org/ELF/ppc64/PPC-elf64abi-1.9.pdf */
@@ -35,7 +35,7 @@
 #define ELF_SECTION_COMMON 0xFFF2
 
 #define ELF_SYM_TYPE(_x) (_x & 0xF) // lower 4 bits from the info field
-#define ELF_SYM_SCOPE(_x) ((_x>>4) & 0xF) // upper 4 bits from the info field
+//#define ELF_SYM_SCOPE(_x) ((_x>>4) & 0xF) // upper 4 bits from the info field
 
 #define ELF32_R_SYM(_x) (_x>>8)
 #define ELF32_R_TYPE(_x) (_x & 0xFF)
@@ -891,7 +891,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 		}
 
 		// set the symbol scope
-		if (ELF_SYM_SCOPE(sym->info) & ELF_SYMBOL_GLOBAL)
+		if (sym->info & ELF_SYMBOL_GLOBAL)
 			symbol_flags |= SYMBOL_FLAG_GLOBAL;
 
 		// add the symbol
@@ -989,7 +989,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       strncpy(sym_name, (char*)sec_dynstr->data + dsym->name, SYMBOL_MAX_LENGTH);
       printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
 
-      backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_EXTERNAL, sec_text);
+      backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text);
       
       // get the version number to look up the version string
       ver = (unsigned short*)sec_versym->data + index;
@@ -1008,23 +1008,17 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
          if (mod)
          {
             backend_section* sec = backend_find_section_by_val(obj, rela->addr);
-            //printf("0x%lx is in section %s\n", rela->addr, sec->name);
             unsigned long plt_addr = *(unsigned long*)(sec->data + (rela->addr - sec->address));
             unsigned long sym_addr = plt_addr - 6;
-            //printf("Address: 0x%lx\n", sym_addr);
-            //sec = backend_find_section_by_val(obj, plt_addr);
-            //printf("0x%lx is in section %s\n", plt_addr, sec->name);
-            //long sym_addr = decode_plt_entry(ELF_ISA_X86_64, (char*)(sec->data + (plt_addr - sec->address) - 6)) + plt_addr;
-            printf("Adding import function %s @ 0x%lx\n", sym_name, sym_addr);
-            backend_add_import_function(mod, sym_name, sym_addr);
+            backend_symbol *bs = backend_add_import_function(mod, sym_name, sym_addr);
          }
 
          // now get the corresponding symbol from the main table and delete it
-         strcat(sym_name, "@@");
-         strcat(sym_name, module_name);
-         printf("Removing original PLT symbol %s (%i)\n", sym_name, backend_symbol_count(obj));
-         backend_remove_symbol_by_name(obj, sym_name);
-         printf("After: %i\n", backend_symbol_count(obj));
+         //strcat(sym_name, "@@");
+         //strcat(sym_name, module_name);
+         //printf("Removing original PLT symbol %s (%i)\n", sym_name, backend_symbol_count(obj));
+         //backend_remove_symbol_by_name(obj, sym_name);
+         //printf("After: %i\n", backend_symbol_count(obj));
       }
 
       rela++;
@@ -1412,7 +1406,7 @@ static int elf32_write_file(backend_object* obj, const char* filename)
          // write the .strtab section header
          sh.type = SHT_STRTAB;
          sh.size = strtab_entry - strtab;
-         printf("Writing .strtab section (%u)\n", sh.size);
+
          if (sh.size)
          {
             // align fpos_data
@@ -1470,8 +1464,6 @@ static int elfcmp(void* item_a, void* item_b)
 	backend_symbol *a = (backend_symbol*)item_a;
 	backend_symbol *b = (backend_symbol*)item_b;
 
-	printf("Comparing %s to %s\n", a->name, b->name);
-
 	// ELF symbol ordering is like this:
 	// 1. A null symbol (singleton)
 	// 2. File symbol for this object file (singleton)
@@ -1484,16 +1476,12 @@ static int elfcmp(void* item_a, void* item_b)
 	// what B is, because null symbols are all the same (actually there
 	// should only be 1) and they must come before any other symbol.
 	if (IS_NULL_SYMBOL(a))
-	{
-		printf("null symbol\n");
 		return 0;
-	}
 
 	// if A is a file symbol, it must come after any null symbols,
 	// but before anything else.
 	else if (a->type == SYMBOL_TYPE_FILE)
 	{
-		printf("file symbol\n");
 		if (IS_NULL_SYMBOL(b))
 			return 1;
 		else if (b->type == SYMBOL_TYPE_FILE)
@@ -1507,7 +1495,6 @@ static int elfcmp(void* item_a, void* item_b)
 	// order (which is legal, but bothers me).
 	else if (a->type == SYMBOL_TYPE_SECTION)
 	{
-		printf("section symbol\n");
 		if (IS_NULL_SYMBOL(b))
 			return 1;
 		else if (b->type == SYMBOL_TYPE_FILE)
@@ -1522,7 +1509,6 @@ static int elfcmp(void* item_a, void* item_b)
 
 	else if (!(a->flags & SYMBOL_FLAG_GLOBAL))
 	{
-		printf("local symbol\n");
 		if (!(b->flags & SYMBOL_FLAG_GLOBAL))
 			return 0;
 		return -1;
@@ -1795,8 +1781,6 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 				sym = backend_get_first_symbol(obj);
 				while (sym)
 				{
-               //printf("Writing symbol %s\n", sym->name);
-
 					s.name = strtab_entry - strtab;
 					s.info = backend_to_elf_sym_type(sym->type);
 					s.other = 0;
@@ -1805,13 +1789,9 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 					s.size = sym->size;
 
 					if (sym->flags & SYMBOL_FLAG_GLOBAL)
-					{
 						s.info |= ELF_SYMBOL_GLOBAL;
-					}
 					else
-					{
 						sh.info++;
-					}
 
 					// if the symbol points to a section and is not external, set the index
 					if (sym->section && !(sym->flags & SYMBOL_FLAG_EXTERNAL))
@@ -1856,7 +1836,9 @@ static int elf64_write_file(backend_object* obj, const char* filename)
          // write the .strtab section header
          sh.type = SHT_STRTAB;
          sh.size = strtab_entry - strtab;
-         printf("Writing .strtab section (%lu)\n", sh.size);
+			sh.info = 0;
+         sh.flags = 0;
+
          if (sh.size)
          {
             // align fpos_data
@@ -1872,10 +1854,10 @@ static int elf64_write_file(backend_object* obj, const char* filename)
       else if (strcmp(".shstrtab", bs->name) == 0)
       {
          // write the .shstrtab section header
-         printf("Writing .shstrtab section\n");
          sh.type = SHT_STRTAB;
          sh.offset = fpos_data;
          sh.size = shstrtab_entry - shstrtab;
+			sh.flags = 0;
 
          // write the data of the section header string table
          if (sh.size)
