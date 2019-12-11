@@ -781,7 +781,7 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 					// Add the missing section and section symbol
 					dest_sec = backend_add_section(dest, target->section->name, 0, target->section->address,
 						NULL, 0, target->section->alignment, target->section->flags);
-					backend_add_symbol(dest, target->name, 0, SYMBOL_TYPE_SECTION, target->size, 0, dest_sec);
+					backend_add_symbol(dest, target->section->name, 0, SYMBOL_TYPE_SECTION, target->size, 0, dest_sec);
 				}
 
 				// if the relocation is to a data object, we need the value since it is the offset from
