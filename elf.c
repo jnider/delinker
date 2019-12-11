@@ -45,6 +45,12 @@
 #define ELF64_R_TYPE(_x) (_x & 0xFFFFFFFFL)
 #define ELF64_R_INFO(_x, _t) (unsigned long)((unsigned long)(_x) << 32 | _t & ELF64_R_TYPE(_t))
 
+#define IS_NULL_SYMBOL(_x) (\
+	(_x->type == SYMBOL_TYPE_NONE) && \
+	(_x->size == 0) && \
+	(_x->val == 0) && \
+	(_x->name[0] == 0))
+
 /*
 enum elf_sections
 {
@@ -676,6 +682,79 @@ int elf64_find_section(FILE* f, const elf64_header* h, const char* name, const c
    }
 
    return -1;
+}
+
+/* Used to compare two symbols when sorting symbol table
+   in order to write them to an ELF object file */
+static int elfcmp(void* item_a, void* item_b)
+{
+	backend_symbol *a = (backend_symbol*)item_a;
+	backend_symbol *b = (backend_symbol*)item_b;
+
+	// ELF symbol ordering is like this:
+	// 1. A null symbol (singleton)
+	// 2. File symbol for this object file (singleton)
+	// 3. Section symbols (local)
+	// 4. Other locals (can sometimes intermingle with sections)
+	// 5. global functions
+	// 6. other globals
+
+	// check to see if it is a null symbol. If so, it doesn't matter
+	// what B is, because null symbols are all the same (actually there
+	// should only be 1) and they must come before any other symbol.
+	if (IS_NULL_SYMBOL(a))
+		return 0;
+
+	// if A is a file symbol, it must come after any null symbols,
+	// but before anything else.
+	else if (a->type == SYMBOL_TYPE_FILE)
+	{
+		if (IS_NULL_SYMBOL(b))
+			return 1;
+		else if (b->type == SYMBOL_TYPE_FILE)
+			return 0;
+		else
+			return -1;
+	}
+
+	// All section symbols come after the file symbol. They are
+	// considered equal, and sometimes their indices are out of
+	// order (which is legal, but bothers me).
+	else if (a->type == SYMBOL_TYPE_SECTION)
+	{
+		if (IS_NULL_SYMBOL(b))
+			return 1;
+		else if (b->type == SYMBOL_TYPE_FILE)
+			return 1;
+		else if (b->type == SYMBOL_TYPE_SECTION)
+		{
+			return 0;
+		}
+		else
+			return -1;
+	}
+
+	else if (!(a->flags & SYMBOL_FLAG_GLOBAL))
+	{
+		if (!(b->flags & SYMBOL_FLAG_GLOBAL))
+			return 0;
+		return -1;
+	}
+	else
+	{
+		if (!(b->flags & SYMBOL_FLAG_GLOBAL))
+			return 1;
+		if (a->type == SYMBOL_TYPE_FUNCTION)
+		{
+			if (b->type == SYMBOL_TYPE_FUNCTION)
+				return 0;
+			else
+				return -1;
+		}
+		return -1;
+	}
+
+	return 0;
 }
 
 static backend_object* elf32_read_file(FILE* f, elf32_header* h)
@@ -1459,85 +1538,6 @@ done:
    free(strtab);
    fclose(f);
    return 0;
-}
-
-#define IS_NULL_SYMBOL(_x) (\
-	(_x->type == SYMBOL_TYPE_NONE) && \
-	(_x->size == 0) && \
-	(_x->val == 0) && \
-	(_x->name[0] == 0))
-
-/* Used to compare two symbols when sorting symbol table
-   in order to write them to an ELF object file */
-static int elfcmp(void* item_a, void* item_b)
-{
-	backend_symbol *a = (backend_symbol*)item_a;
-	backend_symbol *b = (backend_symbol*)item_b;
-
-	// ELF symbol ordering is like this:
-	// 1. A null symbol (singleton)
-	// 2. File symbol for this object file (singleton)
-	// 3. Section symbols (local)
-	// 4. Other locals (can sometimes intermingle with sections)
-	// 5. global functions
-	// 6. other globals
-
-	// check to see if it is a null symbol. If so, it doesn't matter
-	// what B is, because null symbols are all the same (actually there
-	// should only be 1) and they must come before any other symbol.
-	if (IS_NULL_SYMBOL(a))
-		return 0;
-
-	// if A is a file symbol, it must come after any null symbols,
-	// but before anything else.
-	else if (a->type == SYMBOL_TYPE_FILE)
-	{
-		if (IS_NULL_SYMBOL(b))
-			return 1;
-		else if (b->type == SYMBOL_TYPE_FILE)
-			return 0;
-		else
-			return -1;
-	}
-
-	// All section symbols come after the file symbol. They are
-	// considered equal, and sometimes their indices are out of
-	// order (which is legal, but bothers me).
-	else if (a->type == SYMBOL_TYPE_SECTION)
-	{
-		if (IS_NULL_SYMBOL(b))
-			return 1;
-		else if (b->type == SYMBOL_TYPE_FILE)
-			return 1;
-		else if (b->type == SYMBOL_TYPE_SECTION)
-		{
-			return 0;
-		}
-		else
-			return -1;
-	}
-
-	else if (!(a->flags & SYMBOL_FLAG_GLOBAL))
-	{
-		if (!(b->flags & SYMBOL_FLAG_GLOBAL))
-			return 0;
-		return -1;
-	}
-	else
-	{
-		if (!(b->flags & SYMBOL_FLAG_GLOBAL))
-			return 1;
-		if (a->type == SYMBOL_TYPE_FUNCTION)
-		{
-			if (b->type == SYMBOL_TYPE_FUNCTION)
-				return 0;
-			else
-				return -1;
-		}
-		return -1;
-	}
-
-	return 0;
 }
 
 static int elf64_write_file(backend_object* obj, const char* filename)
