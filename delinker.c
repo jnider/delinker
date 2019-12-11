@@ -572,6 +572,15 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 		case X86_INS_MOV:
 			// 48 8b 05 9b 99 5f 00		mov    0x5f999b(%rip),%rax
 			// b8 02 00 1f bb				mov    $0xbb1f0002,%eax
+			// bf 43 08 40 00       	mov    $0x400843,%edi
+			if (cs_ins->size == 5 && cs_ins->bytes[0] == 0xbf)
+			{
+				int *val_ptr = (int*)((char*)pc - cs_ins->size + 1);
+				val = *val_ptr;
+				printf("Found MOV esi/edi to 0x%x @ 0x%lx\n", val, cs_ins->address);
+				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, cs_ins->address+1) == 0)
+					*val_ptr = 0;
+			}
 			break;
 
 		case X86_INS_CALL:
