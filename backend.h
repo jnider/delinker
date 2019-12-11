@@ -142,6 +142,8 @@ typedef struct backend_object
    const list_node* iter_symbol_t;
    const list_node* iter_section;
    const list_node* iter_reloc;
+   const list_node* iter_import_table;
+   const list_node* iter_import_symbol;
 } backend_object;
 
 // the interface that must be implemented by a particular backend implementation - mainly for serializing to disk (and deserializing from disk)
@@ -220,3 +222,5 @@ backend_import* backend_add_import_module(backend_object* obj, const char* name)
 backend_import* backend_find_import_module_by_name(backend_object* obj, const char* name);
 backend_symbol* backend_add_import_function(backend_import* mod, const char* name, unsigned long val);
 backend_symbol* backend_find_import_by_address(backend_object* obj, unsigned long addr);
+backend_symbol* backend_get_first_import(backend_object* obj);
+backend_symbol* backend_get_next_import(backend_object* obj);

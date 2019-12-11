@@ -834,3 +834,45 @@ backend_symbol* backend_find_import_by_address(backend_object* obj, unsigned lon
 	return NULL;
 }
 
+backend_symbol* backend_get_first_import(backend_object* obj)
+{
+	if (!obj || !obj->import_table)
+		return NULL;
+	obj->iter_import_table = ll_iter_start(obj->import_table);
+	if (!obj->iter_import_table)
+		return NULL;
+
+	backend_import* i = (backend_import*)obj->iter_import_table->val;
+	if (!i)
+		return NULL;
+
+	obj->iter_import_symbol=ll_iter_start(i->symbols);
+	if (!obj->iter_import_symbol)
+		return NULL;
+	return (backend_symbol*)obj->iter_import_symbol->val;
+}
+
+backend_symbol* backend_get_next_import(backend_object* obj)
+{
+	if (!obj || !obj->import_table)
+		return NULL;
+
+	// first, iterate inside the module
+   obj->iter_import_symbol = obj->iter_import_symbol->next;
+   if (obj->iter_import_symbol)
+      return (backend_symbol*)obj->iter_import_symbol->val;
+
+	// if there are no more symbols, try the next module
+	obj->iter_import_table = obj->iter_import_table->next;
+	if (!obj->iter_import_table)
+		return NULL;
+
+	backend_import* i = (backend_import*)obj->iter_import_table->val;
+	if (!i)
+		return NULL;
+
+	obj->iter_import_symbol=ll_iter_start(i->symbols);
+	if (!obj->iter_import_symbol)
+		return NULL;
+	return (backend_symbol*)obj->iter_import_symbol->val;
+}
