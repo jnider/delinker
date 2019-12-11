@@ -680,23 +680,6 @@ static int build_relocations(backend_object* obj)
 	return 0;
 }
 
-backend_object* set_up_output_file(backend_object* src, const char* filename, backend_type t)
-{
-	backend_object* oo = backend_create();
-	if (!oo)
-		return NULL;
-
-	printf("=== Opening file %s\n", filename);
-	backend_set_type(oo, t);
-
-	// add a symbol representing the file
-	printf("Adding file symbol for %s\n", filename);
-	if (!backend_add_symbol(oo, filename, 0, SYMBOL_TYPE_FILE, 0, 0, NULL))
-		printf("Error adding symbol\n");
-
-	return oo;
-}
-
 /* check to see if we need this relocation in the output file 
    It depends on if it is covered by a symbol in the src file
 	that also exists in the dest file */
@@ -773,7 +756,7 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 					// Add the missing section and section symbol
 					dest_sec = backend_add_section(dest, target->section->name, 0, target->section->address,
 						NULL, 0, target->section->alignment, target->section->flags);
-					backend_add_symbol(dest, target->name, 0, SYMBOL_TYPE_SECTION, target->size, 0, 0);
+					backend_add_symbol(dest, target->name, 0, SYMBOL_TYPE_SECTION, target->size, 0, dest_sec);
 				}
 
 				// if the relocation is to a data object, we need the value since it is the offset from
@@ -856,15 +839,15 @@ next:
 	return 0;
 }
 
-// write an object file containing a single symbol
-static int write_symbol(backend_object *oo, backend_object *obj, struct backend_symbol *sym, backend_type output_target)
+// write an object file containing a single function
+static int write_symbol(backend_object *oo, backend_object *obj, struct backend_symbol *sym, backend_type output_target, const char *filename)
 {
 	backend_section *sec_text;
 	unsigned char *data;
 	unsigned int size;
-	//unsigned int flags=SYMBOL_FLAG_GLOBAL; // mark all functions as global
 	unsigned int type=SYMBOL_TYPE_FUNCTION;
 	unsigned long base=0;	// base address to remove from symbol values
+	unsigned long offset;
    int len;
 
 	if (!sym)
@@ -876,12 +859,25 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 		return -ERR_NO_SECTION;
 	}
 
-	// copy the code to the output object
-	size = sym->section->size;
-	data = (unsigned char*)malloc(size);
-	memcpy(data, sym->section->data, size);
-	sec_text = backend_add_section(oo, ".text", size, 0, data, 0, 2, SECTION_FLAG_CODE);
+	printf("Writing symbol %s\n", sym->name);
+
+	// calculate base
+	printf("Symbol @ 0x%lx in section @ 0x%lx\n", sym->val, sym->section->address);
 	base = sym->section->address;
+	offset = sym->val - base;
+	printf("offset: 0x%lx\n", offset);
+
+	// copy the code to the output object
+	size = sym->size;//sym->section->size;
+	data = (unsigned char*)malloc(size);
+	printf("  copying %u bytes from offset 0x%lx\n", size, sym->val);
+	memcpy(data, sym->section->data+offset, size);
+	sec_text = backend_add_section(oo, ".text", size, 0, data, 0, 2, SECTION_FLAG_CODE);
+
+	// add a symbol representing the file
+	if (!backend_add_symbol(oo, filename, 0, SYMBOL_TYPE_FILE, 0, 0, sec_text))
+		printf("Error adding file symbol for %s\n", filename);
+
 	// any function with a 0 size is probably an external function (from a library)
 	// even though it is a function, it should be marked as "No type"
 	//if (sym->size == 0)
@@ -891,13 +887,13 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 	//}
 
 	// add the function symbol
-	printf("adding func symbol %s (flags=%u)\n", sym->name, sym->flags);
-	sym = backend_add_symbol(oo, sym->name, sym->val-base, sym->type, sym->size, sym->flags, sec_text);
+	printf("adding func symbol %s @ 0x%lx (flags=%u)\n", sym->name, sym->val-base-offset, sym->flags);
+	sym = backend_add_symbol(oo, sym->name, sym->val-base-offset, sym->type, sym->size, sym->flags, sec_text);
 	if (!sym)
 		printf("Error adding symbol\n"); 
 
 	copy_relocations(obj, oo);
-	//fixup_function_data(oo); this seems like a poorly written optimization
+	fixup_function_data(oo); //this seems like a poorly written optimization
 	copy_data(obj, oo);
 
 	return 0;
@@ -972,12 +968,16 @@ unlink_file(const char* input_filename, backend_type output_target)
 				// set up output file
 				strncpy(output_filename, sym->name, MAX_FILENAME_LENGTH-2); // leave 2 chars for ".o"
 				strncat(output_filename, ".o", MAX_FILENAME_LENGTH);
-				oo = set_up_output_file(obj, output_filename, output_target);
+				backend_object* oo = backend_create();
 				if (!oo)
 					return -ERR_CANT_CREATE_OO;
 
+				printf("=== Opening file %s\n", output_filename);
+				backend_set_type(oo, output_target);
+
 				//printf("Writing symbol %s to file %s\n", sym->name, output_filename);
-				write_symbol(oo, obj, sym, output_target);
+				if (write_symbol(oo, obj, sym, output_target, output_filename) < 0)
+					printf("Error adding function symbol for %s\n", sym->name);
 
 				// close output file
 				if (backend_write(oo, output_filename))
