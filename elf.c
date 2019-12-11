@@ -1125,6 +1125,12 @@ static int elf32_write_file(backend_object* obj, const char* filename)
          bs = backend_add_section(obj, ".symtab", 0, 0, 0, 0, 0, 0);
       if (!backend_get_section_by_name(obj, ".strtab"))
          bs = backend_add_section(obj, ".strtab", 0, 0, 0, 0, 0, 0);
+
+		// Sort the symbols into ELF ordering (null, sections, other locals, globals)
+		// This must be done before writing the relocation and symbol tables because
+		// they both depend on the ordering. Obviously, no more symbols should be added
+		// after calling this function.
+		backend_sort_symbols(obj, elfcmp);
    }
 
    // write file header
@@ -1232,12 +1238,16 @@ static int elf32_write_file(backend_object* obj, const char* filename)
             backend_reloc* r = backend_get_first_reloc(obj);
             while (r)
             {
-               elf32_rela rela;
-               rela.addr = r->offset;
-               unsigned int reloc_type = backend_to_elf32_reloc_type(r->type);
-               rela.info = ELF32_R_INFO(backend_get_symbol_index(obj, r->symbol)+1, reloc_type); // elf has 1 null symbol at the beginning
-               rela.addend = r->addend;
-               //printf("writing reloc for 0x%x symbol: %s (%u) addend: 0x%x type=%u\n", rela.addr, r->symbol->name, backend_get_symbol_index(obj, r->symbol)+1, rela.addend, reloc_type);
+					elf32_rela rela;
+					unsigned int reloc_type = backend_to_elf32_reloc_type(r->type);
+					// elf has 1 null symbol at the beginning that is not accounted for when getting the index
+					unsigned int index = backend_get_symbol_index(obj, r->symbol)+1;
+
+					rela.addr = r->offset;
+					rela.info = ELF32_R_INFO(index, reloc_type);
+					rela.addend = r->addend;
+					printf("writing reloc for 0x%x symbol: %s (%u) addend: 0x%x type=%u\n",
+						rela.addr, r->symbol->name, index, rela.addend, reloc_type);
                fwrite(&rela, sizeof(elf32_rela), 1, f);
                r = backend_get_next_reloc(obj);
             }
@@ -1570,6 +1580,12 @@ static int elf64_write_file(backend_object* obj, const char* filename)
          bs = backend_add_section(obj, ".symtab", 0, 0, 0, 0, 0, 0);
       if (!backend_get_section_by_name(obj, ".strtab"))
          bs = backend_add_section(obj, ".strtab", 0, 0, 0, 0, 0, 0);
+
+		// Sort the symbols into ELF ordering (null, sections, other locals, globals)
+		// This must be done before writing the relocation and symbol tables because
+		// they both depend on the ordering. Obviously, no more symbols should be added
+		// after calling this function.
+		backend_sort_symbols(obj, elfcmp);
    }
 
    // write file header
@@ -1677,14 +1693,16 @@ static int elf64_write_file(backend_object* obj, const char* filename)
             backend_reloc* r = backend_get_first_reloc(obj);
             while (r)
             {
-               elf64_rela rela;
-               rela.addr = r->offset;
-               unsigned int reloc_type = backend_to_elf64_reloc_type(r->type);
-               rela.info = ELF64_R_INFO(backend_get_symbol_index(obj, r->symbol)+1, reloc_type); // elf has 1 null symbol at the beginning
-               rela.addend = r->addend;
-               //printf("writing reloc for 0x%lx symbol: %s (%u) addend: 0x%lx\n", rela.addr, r->symbol->name, backend_get_symbol_index(obj, r->symbol)+1, rela.addend);
-               fwrite(&rela, sizeof(elf64_rela), 1, f);
-               r = backend_get_next_reloc(obj);
+					elf64_rela rela;
+					unsigned int reloc_type = backend_to_elf64_reloc_type(r->type);
+					unsigned int index = backend_get_symbol_index(obj, r->symbol)+1;
+					rela.addr = r->offset;
+					rela.info = ELF64_R_INFO(index, reloc_type);
+					rela.addend = r->addend;
+					printf("writing reloc for 0x%lx symbol: %s (%u) addend: 0x%lx\n",
+						rela.addr, r->symbol->name, index, rela.addend);
+					fwrite(&rela, sizeof(elf64_rela), 1, f);
+					r = backend_get_next_reloc(obj);
             }
             fpos_data = ftell(f);
             fseek(f, fpos_cur, SEEK_SET);
@@ -1771,9 +1789,6 @@ static int elf64_write_file(backend_object* obj, const char* filename)
             fpos_cur = ftell(f);
             fseek(f, sh.offset, SEEK_SET);
       
-				// Sort the symbols into ELF ordering (null, sections, other locals, globals)
-				backend_sort_symbols(obj, elfcmp);
-
             // write an empty symbol first
             fwrite(&s, sizeof(elf64_symbol), 1, f);
 				sh.info++;
