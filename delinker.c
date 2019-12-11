@@ -323,7 +323,7 @@ static backend_symbol* get_data_section_symbol(backend_object* obj, unsigned lon
 	return NULL;
 }
 
-int create_reloc(backend_object *obj, unsigned int val, int offset)
+int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, int offset)
 {
 	backend_symbol *bs=NULL;
 	backend_section* sec;
@@ -344,7 +344,7 @@ int create_reloc(backend_object *obj, unsigned int val, int offset)
 	{
 		// add a relocation
 		printf("Creating relocation to %s @ 0x%x\n", bs->name, offset);
-		return backend_add_relocation(obj, 1, RELOC_TYPE_OFFSET, offset, bs);
+		return backend_add_relocation(obj, 1, t, offset, bs);
 	}
 	else
 	{
@@ -369,12 +369,18 @@ int create_reloc(backend_object *obj, unsigned int val, int offset)
 				if (bs)
 				{
 					printf("Creating PC_REL relocation to %s @offset 0x%x (flags=%u)\n", bs->name, offset, bs->flags);
-					return backend_add_relocation(obj, offset, RELOC_TYPE_PC_RELATIVE, -4, bs);
+					return backend_add_relocation(obj, offset, t, -4, bs);
 				}
 			}
 			else
 			{
 				printf("Missing import symbol - looks bad.\n");
+				backend_symbol *is = backend_get_first_import(obj);
+				while (is)
+				{
+					printf("IMPORT: %s @ %lx\n", is->name, is->val);
+					is = backend_get_next_import(obj);
+				}
 				return -5;
 			}
 		}
@@ -395,8 +401,18 @@ int create_reloc(backend_object *obj, unsigned int val, int offset)
 			if (bs)
 			{
 				// add a relocation
-				printf("Creating PC_REL relocation to %s @offset 0x%x\n", bs->name, offset);
-				return backend_add_relocation(obj, offset, RELOC_TYPE_PC_RELATIVE, -4, bs);
+				if (t == RELOC_TYPE_PC_RELATIVE)
+				{
+					printf("  Creating PC_REL to %s @offset 0x%x\n", bs->name, offset);
+					return backend_add_relocation(obj, offset, t, -4, bs);
+				}
+				else if (t == RELOC_TYPE_OFFSET)
+				{
+					printf("  Creating OFFSET to %s @offset 0x%x\n", bs->name, offset);
+					return backend_add_relocation(obj, 1, t, offset, bs);
+				}
+				else
+					printf("Unknown relocation type: %i\n", t);
 			}
 		}
 		else
@@ -453,7 +469,7 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 				val_ptr = (unsigned int*)(cs_ins->bytes + 2);
 
 			if (val_ptr)
-				create_reloc(obj, *val_ptr, cs_ins->address+2);
+				create_reloc(obj, RELOC_TYPE_OFFSET, *val_ptr, cs_ins->address+2);
 			break;
 
 		case X86_INS_JMP:
@@ -548,7 +564,7 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
 				//printf("Found LEA rsi/rdi to 0x%x @ 0x%lx\n", val, cs_ins->address);
-				if (create_reloc(obj, val, cs_ins->address+3) == 0)
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3) == 0)
 					*val_ptr = 0;
 			}
 			break;
@@ -567,7 +583,7 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 1);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
 				//printf("Found CALL E8 to 0x%x @ 0x%lx\n", val, cs_ins->address);
-				if (create_reloc(obj, val, cs_ins->address+1) == 0)
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+1) == 0)
 					*val_ptr = 0;
 			}
     		//	ff 15 66 2f 00 00    	callq  *0x2f66(%rip)        # 3fe0 <__libc_start_main@GLIBC_2.2.5>
