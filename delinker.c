@@ -766,6 +766,7 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 			dest_target = backend_find_symbol_by_name(dest, target->name);
 			if (!dest_target)
 			{
+				unsigned long value = 0;
 				backend_section *dest_sec = backend_get_section_by_name(dest, target->section->name);
 				if (!dest_sec)
 				{
@@ -774,8 +775,17 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 						NULL, 0, target->section->alignment, target->section->flags);
 					backend_add_symbol(dest, target->name, 0, SYMBOL_TYPE_SECTION, target->size, 0, 0);
 				}
-				printf("Adding symbol %s to section %s (flags=%u)\n", target->name, target->section->name, target->flags);
-				dest_target = backend_add_symbol(dest, target->name, 0, target->type, target->size,
+
+				// if the relocation is to a data object, we need the value since it is the offset from
+				// the beginning of the data segment to which it belongs. Relocations to functions and
+				// other symbols should have a value of 0.
+				if (target->type == SYMBOL_TYPE_FUNCTION)
+					value = 0;
+				else
+					value = target->val;
+
+				printf("Adding symbol %s (%i) to section %s (flags=%u)\n", target->name, target->type, target->section->name, target->flags);
+				dest_target = backend_add_symbol(dest, target->name, value, target->type, target->size,
 					target->flags, dest_sec);
 				if (!dest_target)
 				{
@@ -801,7 +811,16 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 		r = backend_get_next_reloc(src);
 	}
 
+#ifdef DEBUG
 	printf("Output file has %u relocations\n", backend_relocation_count(dest));
+	backend_reloc* tr = backend_get_first_reloc(dest);
+	while (tr)
+	{
+		printf("** Symbol %s (val 0x%lx) Offset: 0x%lx\n", tr->symbol->name, tr->symbol->val, tr->offset);
+		tr = backend_get_next_reloc(dest);
+	}
+#endif // DEBUG
+
 	return 0;
 }
 
@@ -878,7 +897,7 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 		printf("Error adding symbol\n"); 
 
 	copy_relocations(obj, oo);
-	fixup_function_data(oo);
+	//fixup_function_data(oo); this seems like a poorly written optimization
 	copy_data(obj, oo);
 
 	return 0;
