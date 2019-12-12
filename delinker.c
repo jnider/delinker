@@ -413,7 +413,7 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 				// add a relocation
 				if (t == RELOC_TYPE_PC_RELATIVE)
 				{
-					addend = -4;
+					addend = val - sec->address - 4;
 					printf("  Creating PC_REL to %s @offset 0x%x\n", bs->name, offset);
 					return backend_add_relocation(obj, offset, t, addend, bs);
 				}
