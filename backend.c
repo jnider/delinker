@@ -211,12 +211,8 @@ backend_symbol* backend_add_symbol(backend_object* obj, const char* name, unsign
    s->flags = flags;
    s->section = sec;
 	s->src = NULL;
-   //printf("Adding %s type=%i size=0x%lx val=0x%lx\n", s->name, s->type, s->size, s->val);
 
-	if (type == SYMBOL_TYPE_SECTION)
-		ll_push(obj->symbol_table, s);
-	else
-   	ll_add(obj->symbol_table, s);
+	ll_add(obj->symbol_table, s);
    //printf("There are %i symbols\n", backend_symbol_count(obj));
    return s;
 }
