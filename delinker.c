@@ -250,7 +250,7 @@ static int fixup_function_data(backend_object* obj)
 		return -2;
 	}
 
-	//printf(".text section base = 0x%lx\n", code->address);
+	printf(".text section base = 0x%lx\n", code->address);
 	// now compact the code (curr is the offset)
 	sym = backend_get_first_symbol(obj);
 	while (sym)
@@ -263,7 +263,7 @@ static int fixup_function_data(backend_object* obj)
 				if (offset == -1)
 					offset = sym->val;
 
-				//printf("Moving function @ 0x%lx to 0x%lx (size %lu)\n", sym->val, sym->val - offset, sym->size);
+				printf("Moving function @ 0x%lx to 0x%lx (size %lu)\n", sym->val, sym->val - offset, sym->size);
 				//printf("memmove %p, %p (size %lu)\n", code->data + sym->val - offset, code->data + sym->val, sym->size);
 				memmove(code->data + sym->val - offset, code->data + sym->val, sym->size);
 				sym->val -= offset; // update the symbol address
@@ -328,6 +328,7 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 	backend_symbol *bs=NULL;
 	backend_section* sec;
 	static int data_symbols;
+	int addend = 0;
 
 	// First, find the section that this symbol belongs in
 	sec = backend_find_section_by_val(obj, val);
@@ -394,25 +395,40 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 		// make sure this is a data section
 		if ((sec->flags & SECTION_FLAG_INIT_DATA) || (sec->flags & SECTION_FLAG_UNINIT_DATA))
 		{
+			/*
 			char name[6];
 			snprintf(name, 6, ".L%i", data_symbols++);
 			printf("Adding symbol %s at %lx to section %s\n", name, val - sec->address, sec->name);
 			bs = backend_add_symbol(obj, name, val - sec->address, SYMBOL_TYPE_NONE, 0, 0, sec);
+			*/
+			// get the section symbol related to this section
+			int sec_index = backend_get_section_index_by_name(obj, sec->name);
+			printf("Section %s is index %i\n", sec->name, sec_index);
+			bs = backend_find_symbol_by_index(obj, sec_index);
 			if (bs)
 			{
+				if (bs->type != SYMBOL_TYPE_SECTION)
+					printf("Symbol is not a section symbol!\n");
+
 				// add a relocation
 				if (t == RELOC_TYPE_PC_RELATIVE)
 				{
+					addend = -4;
 					printf("  Creating PC_REL to %s @offset 0x%x\n", bs->name, offset);
-					return backend_add_relocation(obj, offset, t, -4, bs);
+					return backend_add_relocation(obj, offset, t, addend, bs);
 				}
 				else if (t == RELOC_TYPE_OFFSET)
 				{
-					printf("  Creating OFFSET to %s @offset 0x%x\n", bs->name, offset);
-					return backend_add_relocation(obj, 1, t, offset, bs);
+					addend = val - sec->address;
+					printf("  Creating REL_OFFSET to %s+%i @offset 0x%x\n", bs->name, addend, offset);
+					return backend_add_relocation(obj, offset, t, addend, bs);
 				}
 				else
 					printf("Unknown relocation type: %i\n", t);
+			}
+			else
+			{
+				printf("Missing section symbol for %s\n", sec->name);
 			}
 		}
 		else
@@ -712,18 +728,34 @@ static inline int need_reloc(backend_reloc *r, backend_object *src, backend_obje
 {
 	backend_symbol* besym;
 	backend_symbol* sym;
+	unsigned long address = r->offset;
 
-	printf("Looking for a symbol that covers address 0x%lx\n", r->offset);
+	switch (r->type)
+	{
+	case RELOC_TYPE_OFFSET:
+		address = r->addend;
+		break;
+
+	case RELOC_TYPE_PC_RELATIVE:
+		address == r->offset;
+		break;
+
+	default:
+		printf("Unhandled relocation type\n");
+		return -1; // I guess we don't need it
+	}
+
+	printf("Looking for a symbol that covers address 0x%lx\n", address);
 	besym = backend_find_symbol_by_val(src, r->offset);
 	if (besym)
 	{
-		printf("Address 0x%lx is covered by symbol %s: 0x%lx to 0x%lx\n", r->offset,
+		printf("  Address 0x%lx is covered by symbol %s: 0x%lx to 0x%lx\n", address,
 			besym->name, besym->val, besym->val + besym->size);
 
 		sym = backend_find_symbol_by_name(dest, besym->name);
 		if (!sym)
 		{
-			printf("Symbol '%s' doesn't exist in output file - skipping reloc\n", besym->name);
+			printf("  Symbol '%s' doesn't exist in output file - skipping reloc\n", besym->name);
 			return -1;
 		}
 	}
