@@ -935,10 +935,15 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 		case ELF_ST_NOTYPE:
 			// The first symbol in an ELF file must have no name and no type
 			//printf("Skipping symbol with no type\n");
+			if (!backend_add_symbol(obj, name, 0, elf_to_backend_sym_type(sym->info), 0, 0, sec_symtab))
+				printf("Failed adding untyped symbol\n");
 			continue;
 
 		case ELF_ST_SECTION:
-			//printf("Skipping section symbol\n");
+			sec = backend_get_section_by_index(obj, sym->section_index);
+			if (!backend_add_symbol(obj, sec->name, 0, elf_to_backend_sym_type(sym->info), 0, 0, sec) || !sec)
+				printf("Failed adding section symbol\n");
+			printf("Adding section symbol %s (%i)\n", sec->name, sym->section_index);
 			continue;
 
 		case ELF_ST_FILE:
