@@ -571,11 +571,10 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 		case X86_INS_LEA:
 			// 48 8d 3d 89 0f 00 00 	lea    0xf89(%rip),%rdi
 			if (cs_ins->size == 7 && cs_ins->bytes[0] == 0x48 && cs_ins->bytes[1] == 0x8d &&
-				(cs_ins->bytes[2] == 0x3d || cs_ins->bytes[2] == 0x35)) // we only want rsi or rdi targets
+				(cs_ins->bytes[2] == 0x3d || cs_ins->bytes[2] == 0x35 || cs_ins->bytes[2] == 0x0d)) // rsi rdi rcx
 			{
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
-				//printf("Found LEA rsi/rdi to 0x%x @ 0x%lx\n", val, cs_ins->address);
 				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3) == 0)
 					*val_ptr = 0;
 			}
@@ -583,14 +582,44 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 
 		case X86_INS_MOV:
 			// 48 8b 05 9b 99 5f 00		mov    0x5f999b(%rip),%rax
+			if (cs_ins->size == 7 && cs_ins->bytes[0] == 0x48 && cs_ins->bytes[1] == 0x8b &&
+				(cs_ins->bytes[2] == 0x05 || cs_ins->bytes[2] == 0x0d || cs_ins->bytes[2] == 0x15 ||
+				cs_ins->bytes[2] == 0x35 || cs_ins->bytes[2] == 0x3d))
+			{
+				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
+				val = cs_ins->address + *val_ptr + cs_ins->size;
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3) == 0)
+					*val_ptr = 0;
+			}
+			// 48 89 05 87 39 10 00 	mov    %rax,0x103987(%rip)
+			else if (cs_ins->size == 7 && cs_ins->bytes[0] == 0x48 && cs_ins->bytes[1] == 0x89 &&
+				(cs_ins->bytes[2] == 0x05 || cs_ins->bytes[2] == 0x0d || cs_ins->bytes[2] == 0x15))
+			{
+				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
+				val = cs_ins->address + *val_ptr + cs_ins->size;
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3) == 0)
+					*val_ptr = 0;
+			}
+
 			// b8 02 00 1f bb				mov    $0xbb1f0002,%eax
 			// bf 43 08 40 00       	mov    $0x400843,%edi
-			if (cs_ins->size == 5 && cs_ins->bytes[0] == 0xbf)
+			else if (cs_ins->size == 5 && cs_ins->bytes[0] == 0xbf)
 			{
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 1);
 				val = *val_ptr;
-				printf("Found MOV esi/edi to 0x%x @ 0x%lx\n", val, cs_ins->address);
 				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, cs_ins->address+1) == 0)
+					*val_ptr = 0;
+			}
+			break;
+
+		case X86_INS_MOVQ:
+			//48 c7 05 c9 f7 10 00 01 00 00 00 	movq   $0x1,0x10f7c9(%rip)
+			if (cs_ins->size == 11 && cs_ins->bytes[0] == 0x48 && cs_ins->bytes[1] == 0xc7 &&
+				(cs_ins->bytes[2] == 0x05))
+			{
+				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
+				val = cs_ins->address + *val_ptr + cs_ins->size;
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3) == 0)
 					*val_ptr = 0;
 			}
 			break;
