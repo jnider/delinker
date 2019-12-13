@@ -1049,14 +1049,17 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       printf("Can't find PLT reloc section!\n");
       goto done;
    }
+
+	// make sure there are dynamic symbol versions
    rela = (elf64_rela*)sec_rela->data;
    dsym = (elf64_symbol*)sec_dynsym->data;
    ver = (unsigned short*)sec_versym->data;
    versymr = (elf_verneed_header*)sec_versymr->data;
-	printf ("%p %p %p %p\n", rela, dsym, ver, versymr);
+   verent = (elf_verneed_entry*)(sec_versymr->data + versymr->aux);
 	if (!rela || !dsym || !ver || !versymr)
 		goto done;
-   verent = (elf_verneed_entry*)(sec_versymr->data + versymr->aux);
+
+	// Each dynamic symbol has a relocation in .rela.plt
    for (int i=0; i < sec_rela->size/sec_rela->entry_size; i++)
    {
       // we must look up this symbol by index in the ELF dynamic symbol table
@@ -1073,19 +1076,13 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       strncpy(sym_name, (char*)sec_dynstr->data + dsym->name, SYMBOL_MAX_LENGTH);
       printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
 
-      backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text);
+      if (!backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text))
+			printf("Error adding %s\n", sym_name);
       
-      // get the version number to look up the version string
-      ver = (unsigned short*)sec_versym->data + index;
-      //printf("Version %u\n", *ver);
-      //printf("Ver: %i Count: %i File: %s\n", versymr->version, versymr->count, versymr->file + sec_dynstr->data);
-      //printf("Name: %s Flags: %i Version: %i\n", verent->name + sec_dynstr->data, verent->flags, verent->other);
-      char* module_name = NULL;
-      if (*ver == verent->other)
-         module_name = (char*)sec_dynstr->data + verent->name;
-
+      char* module_name = (char*)sec_dynstr->data + verent->name;
       if (module_name)
       {
+			//printf("Looking for module %s\n", module_name);
          backend_import* mod = backend_find_import_module_by_name(obj, module_name);
          if (!mod)
             mod = backend_add_import_module(obj, module_name);
@@ -1096,14 +1093,11 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
             unsigned long sym_addr = plt_addr - 6;
             backend_symbol *bs = backend_add_import_function(mod, sym_name, sym_addr);
          }
-
-         // now get the corresponding symbol from the main table and delete it
-         //strcat(sym_name, "@@");
-         //strcat(sym_name, module_name);
-         //printf("Removing original PLT symbol %s (%i)\n", sym_name, backend_symbol_count(obj));
-         //backend_remove_symbol_by_name(obj, sym_name);
-         //printf("After: %i\n", backend_symbol_count(obj));
       }
+		else
+		{
+			printf("  No import module\n");
+		}
 
       rela++;
    }
