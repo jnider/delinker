@@ -1065,15 +1065,15 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
       // we must look up this symbol by index in the ELF dynamic symbol table
       unsigned long index = ELF64_R_SYM(rela->info);
 
-      DEBUG_PRINT("Getting dynsym index=%lu\n", index);
+      //DEBUG_PRINT("Getting dynsym index=%lu\n", index);
       dsym = (elf64_symbol*)sec_dynsym->data + index;
       //printf("dynsym @ %p dsym @ %p\n", sec_dynsym->data, dsym);
+      strncpy(sym_name, (char*)sec_dynstr->data + dsym->name, SYMBOL_MAX_LENGTH);
       if (strlen((char*)sec_dynstr->data + dsym->name) > SYMBOL_MAX_LENGTH)
       {
-         printf("warning: string too long!\n");
+         printf("warning: symbol name %s will be truncated!\n", sym_name);
          sym_name[SYMBOL_MAX_LENGTH] = 0;
       }
-      strncpy(sym_name, (char*)sec_dynstr->data + dsym->name, SYMBOL_MAX_LENGTH);
       printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
 
       if (!backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text))
@@ -1089,9 +1089,17 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
          if (mod)
          {
             backend_section* sec = backend_find_section_by_val(obj, rela->addr);
-            unsigned long plt_addr = *(unsigned long*)(sec->data + (rela->addr - sec->address));
-            unsigned long sym_addr = plt_addr - 6;
-            backend_symbol *bs = backend_add_import_function(mod, sym_name, sym_addr);
+				if (sec)
+				{
+					unsigned long plt_addr = *(unsigned long*)(sec->data + (rela->addr - sec->address));
+					unsigned long sym_addr = plt_addr - 6; // why 6?
+					if (!backend_add_import_function(mod, sym_name, sym_addr))
+						printf("Error adding import function %s\n", sym_name);
+				}
+				else
+				{
+					printf("Error finding section for address 0x%lx\n", rela->addr);
+				}
          }
       }
 		else
