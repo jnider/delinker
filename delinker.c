@@ -1048,8 +1048,9 @@ unlink_file(const char* input_filename, backend_type output_target)
 				}
 
 				// set up output file
+				memset(output_filename, 0, MAX_FILENAME_LENGTH+1);
 				strncpy(output_filename, sym->name, MAX_FILENAME_LENGTH-2); // leave 2 chars for ".o"
-				strncat(output_filename, ".o", MAX_FILENAME_LENGTH);
+				strcat(output_filename, ".o");
 				backend_object* oo = backend_create();
 				if (!oo)
 					return -ERR_CANT_CREATE_OO;
