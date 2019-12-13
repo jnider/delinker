@@ -1,4 +1,4 @@
-/* https://msdn.microsoft.com/en-us/library/windows/desktop/ms680547(v=vs.85).aspx
+/* https://docs.microsoft.com/en-us/windows/win32/debug/pe-format
 MSDOS stub
 PE signature
 COFF file header

@@ -1,5 +1,5 @@
 /* General layout: https://en.wikipedia.org/wiki/Executable_and_Linkable_Format */
-/* 32-bit layout: http://www.cs.cmu.edu/afs/cs/academic/class/15213-s00/docs/elf.pdf */
+/* 32-bit layout: https://refspecs.linuxbase.org/elf/elf.pdf */
 /* 64-bit layout: https://www.uclibc.org/docs/elf-64-gen.pdf */
 /* x86_64 Relocation types: https://docs.oracle.com/cd/E19120-01/open.solaris/819-0690/chapter7-2/index.html */
 /* PPC64 extension: http://refspecs.linuxfoundation.org/ELF/ppc64/PPC-elf64abi-1.9.pdf */
