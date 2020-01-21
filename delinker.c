@@ -984,7 +984,7 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 static int
 unlink_file(const char* input_filename, backend_type output_target)
 {
-	backend_object* obj; 
+    backend_object* obj; 
    backend_object* oo = NULL;
    char output_filename[MAX_FILENAME_LENGTH+1];
 
@@ -1027,6 +1027,7 @@ unlink_file(const char* input_filename, backend_type output_target)
 
 	// Output symbols to .o files
    backend_symbol* sym = backend_get_first_symbol(obj);
+   backend_object* oo = NULL;
    while (sym)
    {
 		if (config.symbol_per_file)
@@ -1073,8 +1074,47 @@ unlink_file(const char* input_filename, backend_type output_target)
 				break;
 			}
 		}
+        else
+        {
+            switch (sym->type)
+            {
+                case SYMBOL_TYPE_FILE:
+                    memset(output_filename, 0, MAX_FILENAME_LENGTH+1);
+                    strncpy(output_filename, sym->name, MAX_FILENAME_LENGTH-2);
+                    strcat(output_filename, ".o");
+                    oo = backend_create();
+                    if (!oo)
+                        return -ERR_CANT_CREATE_OO;
+
+                    printf("=== Opening file %s\n", output_filename);
+                    fprintf(stderr, "Writing file %s\n", output_filename);
+                    backend_set_type(oo, output_target)
+                    break;
+
+                case SYMBOL_TYPE_SELECTION:
+                    break;
+
+                case SYMBOL_TYPE_FUNCTION:
+                    if (write_symbol(oo, obj, sym, output_target, output_filename) < 0)
+                        printf("Error adding function symbol for %s\n", sym->name);
+                    break;
+            }
+        }
 
       sym = backend_get_next_symbol(obj);
+      if (!config.symbol_per_file)
+      {
+          if (sym->type == SYMBOL_TYPE_FILE)
+          {
+              if (backend_write(oo, output_filename))
+              {
+                  backend_destructor(oo);
+                  return -ERR_CANT_WRITE_OO;
+              }
+              backend_destructor(oo);
+              oo = NULL;
+          }
+      }
    }
 
 	return 0;
