@@ -1027,7 +1027,6 @@ unlink_file(const char* input_filename, backend_type output_target)
 
 	// Output symbols to .o files
    backend_symbol* sym = backend_get_first_symbol(obj);
-   backend_object* oo = NULL;
    while (sym)
    {
 		if (config.symbol_per_file)
@@ -1088,10 +1087,10 @@ unlink_file(const char* input_filename, backend_type output_target)
 
                     printf("=== Opening file %s\n", output_filename);
                     fprintf(stderr, "Writing file %s\n", output_filename);
-                    backend_set_type(oo, output_target)
+                    backend_set_type(oo, output_target);
                     break;
 
-                case SYMBOL_TYPE_SELECTION:
+                case SYMBOL_TYPE_SECTION:
                     break;
 
                 case SYMBOL_TYPE_FUNCTION:
