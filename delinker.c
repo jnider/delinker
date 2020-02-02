@@ -13,6 +13,7 @@ and write out a set of unlinked .o files that can be relinked later.*/
 #include "capstone/capstone.h"
 #include "backend.h"
 #include "config.h"
+#include "ll.h"
 
 extern int nucleus_reconstruct_symbols(backend_object *obj);
 
@@ -70,6 +71,12 @@ static struct option options[] =
 
 // The global configuration options
 struct config config;
+
+typedef struct file_symbol
+{
+    char* name;
+    backend_object* oo;
+} file_symbol;
 
 static void
 usage(void)
@@ -1027,6 +1034,12 @@ unlink_file(const char* input_filename, backend_type output_target)
 
 	// Output symbols to .o files
    backend_symbol* sym = backend_get_first_symbol(obj);
+
+   linked_list* file_symbols = NULL;
+   if (!config.symbol_per_file)
+   {
+       file_symbols = ll_init();
+   }
    while (sym)
    {
 		if (config.symbol_per_file)
@@ -1081,13 +1094,54 @@ unlink_file(const char* input_filename, backend_type output_target)
                     memset(output_filename, 0, MAX_FILENAME_LENGTH+1);
                     strncpy(output_filename, sym->name, MAX_FILENAME_LENGTH-2);
                     strcat(output_filename, ".o");
-                    oo = backend_create();
-                    if (!oo)
-                        return -ERR_CANT_CREATE_OO;
 
-                    printf("=== Opening file %s\n", output_filename);
-                    fprintf(stderr, "Writing file %s\n", output_filename);
-                    backend_set_type(oo, output_target);
+                    if (file_symbols->count > 0)
+                    {
+                        int found = 0;
+                        const list_node* curr_entry = ll_iter_start(file_symbols);
+                        for(int i = 0; i < file_symbols->count; i++)
+                        {
+                            if (strcmp(((file_symbol*) curr_entry->val)->name, output_filename) == 0)
+                            {
+                                found = 1;
+                                break;
+                            }
+                            curr_entry = curr_entry->next;
+                        }
+                        if (found) {
+                            oo = ((file_symbol*) curr_entry->val)->oo;
+                        }
+                        else
+                        {
+                            oo = backend_create();
+                            if (!oo)
+                                return -ERR_CANT_CREATE_OO;
+
+                            printf("=== Opening file %s\n", output_filename);
+                            fprintf(stderr, "Writing file %s\n", output_filename);
+                            backend_set_type(oo, output_target);
+
+                            file_symbol* fs = (file_symbol*) malloc(sizeof(file_symbol));
+                            fs->name = strdup(output_filename);
+                            fs->oo = oo;
+                            ll_add(file_symbols, fs);
+                        }
+                    }
+                    else
+                    {
+                        oo = backend_create();
+                        if (!oo)
+                            return -ERR_CANT_CREATE_OO;
+
+                        printf("=== Opening file %s\n", output_filename);
+                        fprintf(stderr, "Writing file %s\n", output_filename);
+                        backend_set_type(oo, output_target);
+
+                        file_symbol* fs = (file_symbol*) malloc(sizeof(file_symbol));
+                        fs->name = strdup(output_filename);
+                        fs->oo = oo;
+                        ll_add(file_symbols, fs);
+                    }
                     break;
 
                 case SYMBOL_TYPE_SECTION:
@@ -1101,19 +1155,19 @@ unlink_file(const char* input_filename, backend_type output_target)
         }
 
       sym = backend_get_next_symbol(obj);
-      if (!config.symbol_per_file)
-      {
-          if (sym->type == SYMBOL_TYPE_FILE)
-          {
-              if (backend_write(oo, output_filename))
-              {
-                  backend_destructor(oo);
-                  return -ERR_CANT_WRITE_OO;
-              }
-              backend_destructor(oo);
-              oo = NULL;
-          }
-      }
+   }
+   
+   const list_node* curr_entry = ll_iter_start(file_symbols);
+   for(int i = 0; i < file_symbols->count; i++)
+   {
+       if (backend_write(((file_symbol*) curr_entry->val)->oo, ((file_symbol*) curr_entry->val)->name))
+       {
+           backend_destructor(((file_symbol*) curr_entry->val)->oo);
+           return -ERR_CANT_WRITE_OO;
+       }
+       backend_destructor(((file_symbol*) curr_entry->val)->oo);
+       ((file_symbol*) curr_entry->val)->oo = NULL;
+       curr_entry = curr_entry->next;
    }
 
 	return 0;
