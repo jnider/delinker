@@ -360,7 +360,7 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 
 		// JKN: we should not be relying on the section name. The code section is
 		// called .text by convention, but not mandatory. In fact, there may be more than one code section
-		if (strcmp(sec->name, ".text") == 0)
+		if (strcmp(sec->name, ".text")== 0)
 		{
 			printf("  Should have a symbol in .text - bad address or bad instruction??\n");
 			return -3;
@@ -1047,6 +1047,7 @@ unlink_file(const char* input_filename, backend_type output_target)
 			switch (sym->type)
 			{
 			case SYMBOL_TYPE_FILE:
+                            break;
 			case SYMBOL_TYPE_SECTION:
 				// file symbols and section symbols are meta-data
 				// we must ignore any in the backend, and add our own before writing the file
@@ -1060,6 +1061,7 @@ unlink_file(const char* input_filename, backend_type output_target)
 					break;
 				}
 
+                                printf("Function symbol file owner:                     %s                Got here!", sym->src);
 				// set up output file
 				memset(output_filename, 0, MAX_FILENAME_LENGTH+1);
 				strncpy(output_filename, sym->name, MAX_FILENAME_LENGTH-2); // leave 2 chars for ".o"
@@ -1088,9 +1090,13 @@ unlink_file(const char* input_filename, backend_type output_target)
 		}
         else
         {
+            //printf("%s\n", sym->name);
+            printf("%s\n", sym->name);
+            printf("%d\n", sym->type);
             switch (sym->type)
             {
                 case SYMBOL_TYPE_FILE:
+                    printf("File symbol: %s\n", sym->name);
                     memset(output_filename, 0, MAX_FILENAME_LENGTH+1);
                     strncpy(output_filename, sym->name, MAX_FILENAME_LENGTH-2);
                     strcat(output_filename, ".o");
@@ -1148,26 +1154,39 @@ unlink_file(const char* input_filename, backend_type output_target)
                     break;
 
                 case SYMBOL_TYPE_FUNCTION:
-                    if (write_symbol(oo, obj, sym, output_target, output_filename) < 0)
-                        printf("Error adding function symbol for %s\n", sym->name);
-                    break;
+                    printf("Function symbol: %s\n", sym->name);
+                    if (strstr(sym->name, "@@"))
+                    {
+                        printf("Skipping external function %s\n", sym->name);
+			break;
+                    }
+
+                    if (strcmp(sym->name, "deregister_tm_clones") != 0 && strcmp(sym->name, "register_tm_clones") != 0 && strcmp(sym->name, "__do_global_dtors_aux_fin") != 0) {
+                        printf("Writing symbol for %s\n", sym->name);
+                        if (write_symbol(oo, obj, sym, output_target, output_filename) < 0)
+                            printf("Error adding function symbol for %s\n", sym->name);
+                            while(1) {}
+                        break;
+                    }
             }
         }
 
       sym = backend_get_next_symbol(obj);
    }
-   
-   const list_node* curr_entry = ll_iter_start(file_symbols);
-   for(int i = 0; i < file_symbols->count; i++)
-   {
-       if (backend_write(((file_symbol*) curr_entry->val)->oo, ((file_symbol*) curr_entry->val)->name))
+  
+   if (!config.symbol_per_file) {
+       const list_node* curr_entry = ll_iter_start(file_symbols);
+       for(int i = 0; i < file_symbols->count; i++)
        {
+           if (backend_write(((file_symbol*) curr_entry->val)->oo, ((file_symbol*) curr_entry->val)->name))
+           {
+               backend_destructor(((file_symbol*) curr_entry->val)->oo);
+               return -ERR_CANT_WRITE_OO;
+           }
            backend_destructor(((file_symbol*) curr_entry->val)->oo);
-           return -ERR_CANT_WRITE_OO;
+           ((file_symbol*) curr_entry->val)->oo = NULL;
+           curr_entry = curr_entry->next;
        }
-       backend_destructor(((file_symbol*) curr_entry->val)->oo);
-       ((file_symbol*) curr_entry->val)->oo = NULL;
-       curr_entry = curr_entry->next;
    }
 
 	return 0;
