@@ -1254,7 +1254,11 @@ static int elf32_write_file(backend_object* obj, const char* filename)
       shstrtab_entry += strlen(shstrtab_entry) + 1;
       if (shstrtab_entry - shstrtab > shstrtab_size)
       {
-         printf("Exceeded section header string table size\n");
+			unsigned int offset = shstrtab_entry - shstrtab;
+			shstrtab_size += 4096;
+			printf("Exceeded section header string table size - extending to %u\n", shstrtab_size);
+			shstrtab = (char*)realloc(shstrtab, shstrtab_size);
+			shstrtab_entry = shstrtab + offset;
       }
       bs = backend_get_next_section(obj);
    }
@@ -1630,7 +1634,11 @@ static int elf64_write_file(backend_object* obj, const char* filename)
       shstrtab_entry += strlen(shstrtab_entry) + 1;
       if (shstrtab_entry - shstrtab > shstrtab_size)
       {
-         printf("Exceeded section header string table size\n");
+			unsigned int offset = shstrtab_entry - shstrtab;
+			shstrtab_size += 4096;
+			printf("Exceeded section header string table size - extending to %u\n", shstrtab_size);
+			shstrtab = (char*)realloc(shstrtab, shstrtab_size);
+			shstrtab_entry = shstrtab + offset;
       }
       bs = backend_get_next_section(obj);
    }
