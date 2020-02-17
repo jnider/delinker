@@ -19,7 +19,7 @@ extern int nucleus_reconstruct_symbols(backend_object *obj);
 
 #define DEFAULT_OUTPUT_FILENAME "default.o"
 #define SYMBOL_NAME_MAIN "main"
-#define MAX_FILENAME_LENGTH 31
+#define MAX_FILENAME_LENGTH 63
 
 typedef void (reloc_fn)(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn *cs_ins);
 
@@ -994,6 +994,7 @@ unlink_file(const char* input_filename, backend_type output_target)
     backend_object* obj; 
    backend_object* oo = NULL;
    char output_filename[MAX_FILENAME_LENGTH+1];
+   char output_filename_src[MAX_FILENAME_LENGTH+2];
 
 	// read the input file into a generic backend structure
    if (config.verbose)
@@ -1032,6 +1033,7 @@ unlink_file(const char* input_filename, backend_type output_target)
 		//printf("Setting output type to match input: %i\n", output_target);
 	}
 
+   dump_symbol_table(obj);
 	// Output symbols to .o files
    backend_symbol* sym = backend_get_first_symbol(obj);
 
@@ -1061,7 +1063,6 @@ unlink_file(const char* input_filename, backend_type output_target)
 					break;
 				}
 
-                                printf("Function symbol file owner:                     %s                Got here!", sym->src);
 				// set up output file
 				memset(output_filename, 0, MAX_FILENAME_LENGTH+1);
 				strncpy(output_filename, sym->name, MAX_FILENAME_LENGTH-2); // leave 2 chars for ".o"
@@ -1090,16 +1091,35 @@ unlink_file(const char* input_filename, backend_type output_target)
 		}
         else
         {
-            //printf("%s\n", sym->name);
-            printf("%s\n", sym->name);
-            printf("%d\n", sym->type);
             switch (sym->type)
             {
                 case SYMBOL_TYPE_FILE:
-                    printf("File symbol: %s\n", sym->name);
+                    break;
+
+                case SYMBOL_TYPE_SECTION:
+                    break;
+
+                case SYMBOL_TYPE_FUNCTION:
+                    if (strstr(sym->name, "@@") || strstr(sym->name, "@"))
+                    {
+                        printf("Skipping external function %s\n", sym->name);
+                        break;
+                    }
+
                     memset(output_filename, 0, MAX_FILENAME_LENGTH+1);
-                    strncpy(output_filename, sym->name, MAX_FILENAME_LENGTH-2);
+                    strncpy(output_filename, sym->src, MAX_FILENAME_LENGTH-2);
+                    //if(strcmp(output_filename, "_global.c") == 0)
+                    //{
+                    //    printf("Skipping external function %s\n", sym->name);
+                    //    break;
+                    //}
                     strcat(output_filename, ".o");
+
+                    //if (strstr(sym->name, "@@") || strstr(sym->name, "@"))
+                    //{
+                    //    printf("Skipping external function %s\n", sym->name);
+                    //    break;
+                    //}
 
                     if (file_symbols->count > 0)
                     {
@@ -1148,26 +1168,12 @@ unlink_file(const char* input_filename, backend_type output_target)
                         fs->oo = oo;
                         ll_add(file_symbols, fs);
                     }
-                    break;
 
-                case SYMBOL_TYPE_SECTION:
-                    break;
-
-                case SYMBOL_TYPE_FUNCTION:
-                    printf("Function symbol: %s\n", sym->name);
-                    if (strstr(sym->name, "@@"))
+                    if (write_symbol(oo, obj, sym, output_target, output_filename) < 0)
                     {
-                        printf("Skipping external function %s\n", sym->name);
-			break;
+                        printf("Error adding function symbol for %s\n", sym->name);
                     }
-
-                    if (strcmp(sym->name, "deregister_tm_clones") != 0 && strcmp(sym->name, "register_tm_clones") != 0 && strcmp(sym->name, "__do_global_dtors_aux_fin") != 0) {
-                        printf("Writing symbol for %s\n", sym->name);
-                        if (write_symbol(oo, obj, sym, output_target, output_filename) < 0)
-                            printf("Error adding function symbol for %s\n", sym->name);
-                            while(1) {}
-                        break;
-                    }
+                    break;
             }
         }
 

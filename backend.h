@@ -224,3 +224,4 @@ backend_symbol* backend_add_import_function(backend_import* mod, const char* nam
 backend_symbol* backend_find_import_by_address(backend_object* obj, unsigned long addr);
 backend_symbol* backend_get_first_import(backend_object* obj);
 backend_symbol* backend_get_next_import(backend_object* obj);
+void dump_symbol_table(backend_object* obj);

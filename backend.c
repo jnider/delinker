@@ -167,7 +167,7 @@ unsigned long backend_get_entry_point(backend_object* obj)
 	return obj->entry;
 }
 
-static void dump_symbol_table(backend_object* obj)
+void dump_symbol_table(backend_object* obj)
 {
    if (!obj || !obj->symbol_table)
       return;
