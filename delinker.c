@@ -1100,7 +1100,7 @@ unlink_file(const char* input_filename, backend_type output_target)
                     break;
 
                 case SYMBOL_TYPE_FUNCTION:
-                    if (strstr(sym->name, "@@") || strstr(sym->name, "@"))
+                    if (strstr(sym->name, "@@") || strstr(sym->name, "@") || sym->src == NULL)
                     {
                         printf("Skipping external function %s\n", sym->name);
                         break;
@@ -1169,6 +1169,9 @@ unlink_file(const char* input_filename, backend_type output_target)
                         ll_add(file_symbols, fs);
                     }
 
+                    if (strcmp(sym->name, "ngx_strcasestrn") == 0) {
+                        int fad = 1;
+                    }
                     if (write_symbol(oo, obj, sym, output_target, output_filename) < 0)
                     {
                         printf("Error adding function symbol for %s\n", sym->name);
