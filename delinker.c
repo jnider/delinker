@@ -564,7 +564,7 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 		case X86_INS_LEA:
 			// 48 8d 3d 89 0f 00 00 	lea    0xf89(%rip),%rdi
 			if (cs_ins->size == 7 && cs_ins->bytes[0] == 0x48 && cs_ins->bytes[1] == 0x8d &&
-				(cs_ins->bytes[2] == 0x3d || cs_ins->bytes[2] == 0x35 || cs_ins->bytes[2] == 0x0d)) // rsi rdi rcx
+				(cs_ins->bytes[2] == 0x3d || cs_ins->bytes[2] == 0x35 || cs_ins->bytes[2] == 0x0d || cs_ins->bytes[2] == 0x05)) // rsi rdi rcx rax
 			{
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
@@ -925,6 +925,7 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 	unsigned int size=0;
 	unsigned int type=SYMBOL_TYPE_FUNCTION;
 	unsigned long base=0;	// base address to remove from symbol values
+	unsigned int alignment=1;
 	unsigned long offset;
    int len;
 
@@ -940,11 +941,15 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 	printf("Writing symbol %s (size=%lu)\n", sym->name, sym->size);
 
 	// calculate base
-	size = sym->size;
 	base = sym->section->address;
 	offset = sym->val - base;
-	printf("Symbol @ 0x%lx in section %s @ 0x%lx (offset=0x%lx flags=0x%x)\n", sym->val,
-		sym->section->name, sym->section->address, offset, sym->section->flags);
+	alignment = sym->section->alignment;
+
+	// we want to include the offset so we can position the object at the original location.
+	// That will ensure that the relocations and symbols all line up. We can 'fix up' the
+	// pointers after.
+	printf("Symbol @ 0x%lx in section %s @ 0x%lx (offset=0x%lx flags=0x%x align=%u)\n", sym->val,
+		sym->section->name, sym->section->address, offset, sym->section->flags, sym->section->alignment);
 
 	// make room in the output object
 	sec_out = backend_get_section_by_name(oo, sym->section->name);
@@ -953,15 +958,18 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 		printf("No output section named %s - creating (flags=0x%x)\n", sym->section->name, sym->section->flags);
 
 		// if the object is not empty, copy it
-		if (size)
+		if (sym->size)
 		{
 			// copy the code/data to the output object
-			size = sym->size;
-			data = (unsigned char*)calloc(size, 1);
-			printf("  copying %u bytes from offset 0x%lx\n", size, sym->val);
-			//printf("dest=%p src=%p size=%i\n", data, sym->section->data+offset, size);
+			size = sym->size + offset;
+			printf("   allocating %i bytes\n", size);
+			data = (unsigned char*)malloc(size);
 			if ((sym->section->flags & SECTION_FLAG_UNINIT_DATA) == 0)
-				memcpy(data, sym->section->data+offset, size);
+			{
+				printf("  copying %lu bytes from offset 0x%lx\n", sym->size, offset);
+				printf("  dest=%p src=%p size=%lu\n", data+offset, sym->section->data+offset, sym->size);
+				memcpy(data+offset, sym->section->data+offset, sym->size);
+			}
 		}
 
 		sec_out = backend_add_section(oo, sym->section->name, size, 0, data,
@@ -969,7 +977,34 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 	}
 	else
 	{
-		printf("Output section %s found - extending\n", sec_out->name);
+		// if the object is not empty, copy it
+		if (sym->size)
+		{
+			printf("Going to write %lu bytes at offset 0x%lx\n", sym->size, offset);
+			if (offset + sym->size > sec_out->size)
+			{
+				printf("Buffer is too small (%u need %lu)\n", sec_out->size, offset + sym->size);
+
+				//printf("Output section %s found - extending from %u to %lu\n",
+				//	sec_out->name, sec_out->size, sec_out->size + sym->size);
+				data = (unsigned char*)realloc(sec_out->data, offset + sym->size);
+				if (data)
+				{
+					sec_out->data = data;
+					sec_out->size = offset + sym->size;
+				}
+				else
+				{
+					printf("Error realloc\n");
+				}
+			}
+			if ((sym->section->flags & SECTION_FLAG_UNINIT_DATA) == 0)
+			{
+				printf("  copying %lu bytes from offset 0x%lx\n", sym->size, offset);
+				printf("  dest=%p src=%p size=%lu\n", sec_out->data+offset, sym->section->data+offset, sym->size);
+				memcpy(sec_out->data+offset, sym->section->data+offset, sym->size);
+			}
+		}
 	}
 
 	// add the function symbol
