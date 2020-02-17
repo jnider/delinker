@@ -129,6 +129,7 @@ typedef struct backend_import
 
 typedef struct backend_object
 {
+	char *name;			// name of file for storing the object
 	backend_arch arch; // the target architecture (after all, the code is compiled for a particular ISA)
    backend_type type; // the file format that should be used when writing the file - this may go away, and become a parameter to backend_write() instead
 	unsigned long entry;	// the entry point for linked files
@@ -169,7 +170,8 @@ const char* backend_get_next_target(void);
 backend_object* backend_create(void); /* the constructor - make an empty backend object */
 void backend_destructor(backend_object* obj); /* the destructor - clean up and delete everything */
 backend_object* backend_read(const char* filename);
-int backend_write(backend_object* obj, const char* filename);
+int backend_write(backend_object* obj);
+void backend_set_filename(backend_object* obj, const char* name);
 void backend_set_type(backend_object* obj, backend_type t);
 backend_type backend_get_type(backend_object* obj);
 void backend_set_arch(backend_object* obj, backend_arch a);

@@ -114,7 +114,7 @@ backend_object* backend_read(const char* filename)
    return 0;
 }
 
-int backend_write(backend_object* obj, const char* filename)
+int backend_write(backend_object* obj)
 {
 	//printf("backend_write looking for type %i\n", obj->type);
    // run through all backends until we find one that matches the output format
@@ -126,12 +126,16 @@ int backend_write(backend_object* obj, const char* filename)
             return -2;
 
 			//printf("Using backend %i\n", i);
-         backend[i]->write(obj, filename);
-         return 0;
+         return backend[i]->write(obj, obj->name);
       }
    }
 
    return -1;
+}
+
+void backend_set_filename(backend_object* obj, const char* name)
+{
+	obj->name = strdup(name);
 }
 
 void backend_set_type(backend_object* obj, backend_type t)
