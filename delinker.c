@@ -1106,20 +1106,36 @@ unlink_file(const char* input_filename, backend_type output_target)
                         break;
                     }
 
+                    if (strcmp(sym->src, "_global.c") == 0)
+                    {
+                        memset(output_filename, 0, MAX_FILENAME_LENGTH+1);
+                        strncpy(output_filename, sym->name, MAX_FILENAME_LENGTH-2); // leave 2 chars for ".o"
+                        strcat(output_filename, ".o");
+                        backend_object* oo = backend_create();
+                       if (!oo)
+                           return -ERR_CANT_CREATE_OO;
+
+                       printf("=== Opening file %s\n", output_filename);
+                       fprintf(stderr, "Writing file %s\n", output_filename);
+                       backend_set_type(oo, output_target);
+
+                       if (write_symbol(oo, obj, sym, output_target, output_filename) < 0)
+                           printf("Error adding function symbol for %s\n", sym->name);
+
+                       // close output file
+                       if (backend_write(oo, output_filename))
+                       {
+                           backend_destructor(oo);
+                           return -ERR_CANT_WRITE_OO;
+                       }
+                       backend_destructor(oo);
+                       oo = NULL;
+                       break;
+                    }
+
                     memset(output_filename, 0, MAX_FILENAME_LENGTH+1);
                     strncpy(output_filename, sym->src, MAX_FILENAME_LENGTH-2);
-                    //if(strcmp(output_filename, "_global.c") == 0)
-                    //{
-                    //    printf("Skipping external function %s\n", sym->name);
-                    //    break;
-                    //}
                     strcat(output_filename, ".o");
-
-                    //if (strstr(sym->name, "@@") || strstr(sym->name, "@"))
-                    //{
-                    //    printf("Skipping external function %s\n", sym->name);
-                    //    break;
-                    //}
 
                     if (file_symbols->count > 0)
                     {
