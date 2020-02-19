@@ -7,6 +7,7 @@ struct config
    int verbose;               // print extra information at runtime
 	bool symbol_per_file;		// write one symbol in each file - this is really useful
 										// when planning to make modifications before relinking.
+	linked_list *ignore_list;	// List of symbols to ignore
 };
 
 // make the config globally accessible

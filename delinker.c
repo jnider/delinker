@@ -61,6 +61,7 @@ error_msg error_code_str[] =
 
 static struct option options[] =
 {
+  {"ignore", required_argument, 0, 'I'},
   {"output-target", required_argument, 0, 'O'},
   {"reconstruct-symbols", no_argument, 0, 'R'},
   {"symbol-per-file", no_argument, 0, 'S'},
@@ -1021,6 +1022,17 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 	return 0;
 }
 
+static int ignore_symbol(backend_symbol *sym)
+{
+   for (const list_node* iter=ll_iter_start(config.ignore_list); iter != NULL; iter=iter->next)
+   {
+		char *tmp_name = (char*)iter->val;
+		if (strcmp(sym->name, tmp_name) == 0)
+			return 1;
+	}
+	return 0;
+}
+
 static int close_output_object(backend_object *oo)
 {
 	int ret = 0;
@@ -1105,6 +1117,14 @@ unlink_file(const char* input_filename, backend_type output_target)
 {
 	backend_object* obj; 
    backend_object* oo = NULL;
+
+	// print ignore list
+	printf("Ignore list:\n");
+   for (const list_node* iter=ll_iter_start(config.ignore_list); iter != NULL; iter=iter->next)
+   {
+		char *sym = (char*)iter->val;
+		printf(" > %s\n", sym);
+	}
 
 	// read the input file into a generic backend structure
    if (config.verbose)
@@ -1191,6 +1211,9 @@ unlink_file(const char* input_filename, backend_type output_target)
 		printf("Outputting to original .o files\n");
 		while (sym)
 		{
+			if (ignore_symbol(sym))
+				goto skip_ext;
+
 			if (sym->type == SYMBOL_TYPE_FUNCTION || sym->type == SYMBOL_TYPE_OBJECT)
 			{
 				if (!sym->src)
@@ -1226,6 +1249,8 @@ main (int argc, char *argv[])
    char *input_filename = NULL;
    char *output_target = NULL;
 
+	config.ignore_list = ll_init(); // list of symbols to ignore
+
 	// we have to initialize the backends early so we can print out the names in usage()
    backend_init();
 
@@ -1238,12 +1263,16 @@ main (int argc, char *argv[])
    int c;
    while (1)
    {
-      c = getopt_long (argc, argv, "O:RSv", options, 0);
+      c = getopt_long (argc, argv, "I:O:RSv", options, 0);
       if (c == -1)
       break;
 
       switch (c)
       {
+		case 'I':
+			ll_push(config.ignore_list, strdup(optarg));
+			break;
+
       case 'O':
          output_target = optarg;
          break;
@@ -1294,6 +1323,11 @@ main (int argc, char *argv[])
       printf("Can't find .text section!\n");
       break;
    }
+
+	// clean up ignore list
+   for (const list_node* iter=ll_iter_start(config.ignore_list); iter != NULL; iter=iter->next)
+		free((char*)iter->val);
+	ll_destroy(config.ignore_list);
 
    return status;
 }
