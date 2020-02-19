@@ -861,13 +861,15 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 			backend_symbol *besym = backend_find_symbol_by_val(src, r->offset);
 			if (besym)
 			{
-				//printf("Using symbol %s: 0x%lx to 0x%lx\n",
-				//	besym->name, besym->val, besym->val + besym->size);
-				// calculate the relocation offset from start of symbol (instead of from start of file)
-				unsigned int offset = r->offset - besym->val;
+				// calculate the relocation offset from start of section
+				unsigned int offset = r->offset - besym->section->address;
 
-				//printf("Adding relocation to symbol %s\n", dest_target->name);
+				printf("Adding relocation to symbol %s (offset=0x%x)\n", dest_target->name, offset);
 				backend_add_relocation(dest, offset, r->type, r->addend, dest_target);
+			}
+			else
+			{
+				printf("can't find src symbol to match value 0x%lx\n", r->offset);
 			}
 		}
 
