@@ -806,11 +806,13 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 	//printf("Source file has %u relocs\n", backend_relocation_count(src));
 
 	// why am I doing this here?
+/*
 	if (check_function_sequence(dest) != 0)
 	{
 		printf("Non-linearity detected in function sequence\n");
 		return -1;
 	}
+*/
 
 	// copy the relocations to the output object, and match the symbols to the output symbol table
 	backend_reloc* r = backend_get_first_reloc(src);
@@ -824,6 +826,7 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 		// file. Then see if that symbol made it into this output file.
 		if (need_reloc(r, src, dest) == 0)
 		{
+			//printf("Copying reloc @offset=%lx to symbol %s\n", r->offset, target->name);
 			dest_target = backend_find_symbol_by_name(dest, target->name);
 			if (!dest_target)
 			{
@@ -962,12 +965,12 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 		{
 			// copy the code/data to the output object
 			size = sym->size + offset;
-			printf("   allocating %i bytes\n", size);
+			//printf("   allocating %i bytes\n", size);
 			data = (unsigned char*)malloc(size);
 			if ((sym->section->flags & SECTION_FLAG_UNINIT_DATA) == 0)
 			{
-				printf("  copying %lu bytes from offset 0x%lx\n", sym->size, offset);
-				printf("  dest=%p src=%p size=%lu\n", data+offset, sym->section->data+offset, sym->size);
+				//printf("  copying %lu bytes from offset 0x%lx\n", sym->size, offset);
+				//printf("  dest=%p src=%p size=%lu\n", data+offset, sym->section->data+offset, sym->size);
 				memcpy(data+offset, sym->section->data+offset, sym->size);
 			}
 		}
@@ -1064,22 +1067,19 @@ static backend_object* get_output_object(linked_list *oo_list, const char* sym_n
 	{
 		oo = (backend_object*)iter->val;
 		if (strcmp(oo->name, output_filename) == 0)
-		{
-			printf("Found open backend object for %s\n", oo->name);
 			break;
-		}
+
 		oo = NULL;
 	}
 
 	if (!oo)
 	{
 		// set up new output file
-		printf("Creating new backend object for %s\n", output_filename);
 		oo = backend_create();
 
 		if (oo)
 		{
-			printf("=== Opening file %s\n", output_filename);
+			fprintf(stderr, "=== Opening file %s\n", output_filename);
 			backend_set_type(oo, output_target);
 			backend_set_filename(oo, output_filename);
 			ll_push(oo_list, oo);
@@ -1176,11 +1176,11 @@ unlink_file(const char* input_filename, backend_type output_target)
 			{
 				if (!sym->src)
 				{
-					printf("Skipping external function %s\n", sym->name);
+					//printf("Skipping external function %s\n", sym->name);
 					goto skip_ext;
 				}
 
-				printf("Symbol %s is owned by file: %s\n", sym->name, sym->src);
+				//printf("Symbol %s is owned by file: %s\n", sym->name, sym->src);
 				oo = get_output_object(oo_list, sym->src, output_target);
 
 				if (write_symbol(oo, obj, sym, output_target) < 0)
