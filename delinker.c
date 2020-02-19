@@ -802,7 +802,7 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 	backend_section* sec;
 	int first_function_offset = -1;
  
-	printf("Copying relocations\n");
+	printf("Copying relocations for %s\n", dest->name);
 	//printf("Source file has %u relocs\n", backend_relocation_count(src));
 
 	// why am I doing this here?
@@ -1018,14 +1018,6 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 	if (!sym)
 		printf("Error adding symbol\n"); 
 
-	copy_relocations(obj, oo);
-	//printf("Fixup function data\n");
-	//fixup_function_data(oo); //this seems like a poorly written optimization
-
-	// sometimes, data symbols don't have a size. In that case, we must copy all data
-	//printf("Copy data\n");
-	//copy_data(obj, oo);
-
 	return 0;
 }
 
@@ -1037,6 +1029,23 @@ static int close_output_object(backend_object *oo)
 		ret = -ERR_CANT_WRITE_OO;
 	backend_destructor(oo);
 	return ret;
+}
+
+static void finalize_objects(linked_list *oo_list, backend_object *src)
+{
+	// iterate through each object from the list
+   for (const list_node* iter=ll_iter_start(oo_list); iter != NULL; iter=iter->next)
+   {
+		backend_object *oo = (backend_object*)iter->val;
+		copy_relocations(src, oo);
+
+		//printf("Fixup function data\n");
+		//fixup_function_data(oo); //this seems like a poorly written optimization
+
+		// sometimes, data symbols don't have a size. In that case, we must copy all data
+		//printf("Copy data\n");
+		//copy_data(obj, oo);
+	}
 }
 
 static void write_output_objects(linked_list *oo_list)
@@ -1162,6 +1171,14 @@ unlink_file(const char* input_filename, backend_type output_target)
 				if (write_symbol(oo, obj, sym, output_target) < 0)
 					printf("Error adding function symbol for %s\n", sym->name);
 
+				copy_relocations(obj, oo);
+				//printf("Fixup function data\n");
+				//fixup_function_data(oo); //this seems like a poorly written optimization
+
+				// sometimes, data symbols don't have a size. In that case, we must copy all data
+				//printf("Copy data\n");
+				//copy_data(obj, oo);
+
 				// close output file
 				close_output_object(oo);
 				break;
@@ -1191,6 +1208,8 @@ unlink_file(const char* input_filename, backend_type output_target)
 skip_ext:
 			sym = backend_get_next_symbol(obj);
 		}
+
+		finalize_objects(oo_list, obj);
 
 		// write out all objects to files
 		write_output_objects(oo_list);
