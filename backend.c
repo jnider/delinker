@@ -198,9 +198,6 @@ backend_symbol* backend_add_symbol(backend_object* obj, const char* name, unsign
 	if (!obj)
 		return NULL;
 
-	if (!sec)
-		return NULL;
-
    if (!obj->symbol_table)
       obj->symbol_table = ll_init();
 
