@@ -943,7 +943,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 			sec = backend_get_section_by_index(obj, sym->section_index);
 			if (!backend_add_symbol(obj, sec->name, 0, elf_to_backend_sym_type(sym->info), 0, 0, sec) || !sec)
 				printf("Failed adding section symbol\n");
-			printf("Adding section symbol %s (%i)\n", sec->name, sym->section_index);
+			//printf("Adding section symbol %s (%i)\n", sec->name, sym->section_index);
 			continue;
 
 		case ELF_ST_FILE:
@@ -1074,7 +1074,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
          printf("warning: symbol name %s will be truncated!\n", sym_name);
          sym_name[SYMBOL_MAX_LENGTH] = 0;
       }
-      printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
+      //printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
 
       if (!backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text))
 			printf("Error adding %s\n", sym_name);
@@ -1826,7 +1826,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 					// if the symbol points to a section and is not external, set the index
 					if (sym->section && !(sym->flags & SYMBOL_FLAG_EXTERNAL))
 					{
-						printf("Getting index for section %s for symbol %s\n", sym->section->name, sym->name);
+						//printf("Getting index for section %s for symbol %s\n", sym->section->name, sym->name);
 						s.section_index = backend_get_section_index_by_name(obj, sym->section->name);
 					}
                if (sym->type == SYMBOL_TYPE_FILE)
@@ -1844,7 +1844,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
                   {
                      unsigned int offset = strtab_entry - strtab;
                      strtab_size += 4096;
-                     printf("Exceeded string table size - extending to %u\n", strtab_size);
+                     //printf("Exceeded string table size - extending to %u\n", strtab_size);
                      strtab = (char*)realloc(strtab, strtab_size);
                      strtab_entry = strtab + offset;
                   }
@@ -1856,7 +1856,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 					sym = backend_get_next_symbol(obj);
             }
 
-				printf("First global symbol index %i\n", sh.info);
+				//printf("First global symbol index %i\n", sh.info);
             fseek(f, fpos_cur, SEEK_SET);
             fpos_data += sh.size;
          }
