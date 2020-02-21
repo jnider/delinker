@@ -985,8 +985,14 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 			}
 		}
 
+		printf("Adding section %s (flags=0x%x)\n", sym->section->name, sym->section->flags);
 		sec_out = backend_add_section(oo, sym->section->name, size, 0, data,
 			0, sym->section->alignment, sym->section->flags);
+
+		// Generally, section symbols don't have a name. But there doesn't seem to be
+		// any reason why not, and it makes it easier to debug
+		if (!backend_add_symbol(oo, sec_out->name, 0, SYMBOL_TYPE_SECTION, 0, 0, sec_out))
+			printf("Error adding section symbol %s\n", sec_out->name);
 	}
 	else
 	{
