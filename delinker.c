@@ -315,7 +315,10 @@ static backend_symbol* get_data_section_symbol(backend_object* obj, unsigned lon
 				sym = backend_add_symbol(obj, sec->name, 0, SYMBOL_TYPE_SECTION, 0, 0, NULL);
 			}
 			if (!sym)
+			{
+				printf("Error adding sec symbol %s\n", sec->name);
 				return NULL;
+			}
 
 			return sym;
 		}
@@ -873,6 +876,10 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 				printf("can't find src symbol to match value 0x%lx\n", r->offset);
 			}
 		}
+		else
+		{
+			//printf("Ignoring reloc @offset=%lx to symbol %s (flags=%u)\n", r->offset, target->name, target->flags);
+		}
 
 		r = backend_get_next_reloc(src);
 	}
@@ -944,7 +951,7 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 		return -ERR_NO_SECTION;
 	}
 
-	printf("Writing symbol %s (size=%lu)\n", sym->name, sym->size);
+	//printf("Writing symbol %s (size=%lu)\n", sym->name, sym->size);
 
 	// calculate base
 	base = sym->section->address;
@@ -954,14 +961,14 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 	// we want to include the offset so we can position the object at the original location.
 	// That will ensure that the relocations and symbols all line up. We can 'fix up' the
 	// pointers after.
-	printf("Symbol @ 0x%lx in section %s @ 0x%lx (offset=0x%lx flags=0x%x align=%u)\n", sym->val,
-		sym->section->name, sym->section->address, offset, sym->section->flags, sym->section->alignment);
+	//printf("Symbol @ 0x%lx in section %s @ 0x%lx (offset=0x%lx flags=0x%x align=%u)\n", sym->val,
+	//	sym->section->name, sym->section->address, offset, sym->section->flags, sym->section->alignment);
 
 	// make room in the output object
 	sec_out = backend_get_section_by_name(oo, sym->section->name);
 	if (!sec_out)
 	{
-		printf("No output section named %s - creating (flags=0x%x)\n", sym->section->name, sym->section->flags);
+		//printf("No output section named %s - creating (flags=0x%x)\n", sym->section->name, sym->section->flags);
 
 		// if the object is not empty, copy it
 		if (sym->size)
@@ -986,10 +993,10 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 		// if the object is not empty, copy it
 		if (sym->size)
 		{
-			printf("Going to write %lu bytes at offset 0x%lx\n", sym->size, offset);
+			//printf("Going to write %lu bytes at offset 0x%lx\n", sym->size, offset);
 			if (offset + sym->size > sec_out->size)
 			{
-				printf("Buffer is too small (%u need %lu)\n", sec_out->size, offset + sym->size);
+				//printf("Buffer is too small (%u need %lu)\n", sec_out->size, offset + sym->size);
 
 				//printf("Output section %s found - extending from %u to %lu\n",
 				//	sec_out->name, sec_out->size, sec_out->size + sym->size);
@@ -1006,15 +1013,15 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 			}
 			if ((sym->section->flags & SECTION_FLAG_UNINIT_DATA) == 0)
 			{
-				printf("  copying %lu bytes from offset 0x%lx\n", sym->size, offset);
-				printf("  dest=%p src=%p size=%lu\n", sec_out->data+offset, sym->section->data+offset, sym->size);
+				//printf("  copying %lu bytes from offset 0x%lx\n", sym->size, offset);
+				//printf("  dest=%p src=%p size=%lu\n", sec_out->data+offset, sym->section->data+offset, sym->size);
 				memcpy(sec_out->data+offset, sym->section->data+offset, sym->size);
 			}
 		}
 	}
 
 	// add the function symbol
-	printf("adding func symbol %s @ 0x%lx (flags=%u)\n", sym->name, sec_out->address+offset, sym->flags);
+	printf("Adding symbol %s @ 0x%lx (type=%i size=%lu) to %s\n", sym->name, sec_out->address+offset, sym->type, sym->size, sym->src);
 	sym = backend_add_symbol(oo, sym->name, sec_out->address+offset, sym->type, sym->size, sym->flags, sec_out);
 	if (!sym)
 		printf("Error adding symbol\n"); 
@@ -1036,7 +1043,9 @@ static int ignore_symbol(backend_symbol *sym)
 static int close_output_object(backend_object *oo)
 {
 	int ret = 0;
-	fprintf(stderr, "Writing file %s\n", oo->name);
+	if (config.verbose)
+		fprintf(stderr, "Writing file %s\n", oo->name);
+	printf("Writing file %s\n", oo->name);
 	if (backend_write(oo))
 		ret = -ERR_CANT_WRITE_OO;
 	backend_destructor(oo);
@@ -1102,7 +1111,9 @@ static backend_object* get_output_object(linked_list *oo_list, const char* sym_n
 
 		if (oo)
 		{
-			fprintf(stderr, "=== Opening file %s\n", output_filename);
+			if (config.verbose)
+				fprintf(stderr, "=== Opening file %s\n", output_filename);
+			printf("=== Opening file %s\n", output_filename);
 			backend_set_type(oo, output_target);
 			backend_set_filename(oo, output_filename);
 			ll_push(oo_list, oo);
@@ -1222,7 +1233,6 @@ unlink_file(const char* input_filename, backend_type output_target)
 					goto skip_ext;
 				}
 
-				//printf("Symbol %s is owned by file: %s\n", sym->name, sym->src);
 				oo = get_output_object(oo_list, sym->src, output_target);
 
 				if (write_symbol(oo, obj, sym, output_target) < 0)
