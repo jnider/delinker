@@ -350,7 +350,7 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 	{
 		// add a relocation
 		//printf("   Creating relocation to %s @ 0x%x\n", bs->name, offset);
-		return backend_add_relocation(obj, 1, t, offset, bs);
+		return backend_add_relocation(obj, offset, t, -4, bs);
 	}
 	else
 	{
