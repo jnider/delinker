@@ -759,11 +759,355 @@ static int elfcmp(void* item_a, void* item_b)
 
 static backend_object* elf32_read_file(FILE* f, elf32_header* h)
 {
-   backend_object* obj = backend_create();
-   if (!obj)
-      return 0;
+	char sym_name[SYMBOL_MAX_LENGTH+1];
+	backend_arch be_arch;
+	elf32_section in_sec;
+	backend_section* sec_symtab;
+	backend_section* sec_dynsym;
+	backend_section* sec_dynstr;
+	backend_section* sec_versym;
+	backend_section* sec_versymr;
+	backend_section* sec_text;
+	backend_section* sec_plt;
+	backend_section* sec_rela;
+	backend_section* sec_strtab = NULL;
+	elf32_symbol* dsym;
+	elf32_symbol* sym;
+	elf32_rela* rela;
+	unsigned short* ver;
+	elf_verneed_header* versymr;
+	elf_verneed_entry* verent;
+	char* section_strtab = NULL;
+	char *src_file = NULL;
 
-   return obj;
+	printf("elf32_read_file\n");
+	backend_object* obj = backend_create();
+	if (!obj)
+		return 0;
+
+	backend_set_type(obj, OBJECT_TYPE_ELF32);
+	switch (h->machine)
+	{
+	case ELF_ISA_X86:
+		be_arch = OBJECT_ARCH_X86;
+		break;
+
+	case ELF_ISA_ARM:
+		be_arch = OBJECT_ARCH_ARM;
+		break;
+
+	default:
+		be_arch = OBJECT_ARCH_UNKNOWN;
+	}
+	if (config.verbose)
+		fprintf(stderr, "Arch %i\n", be_arch);
+	backend_set_arch(obj, be_arch);
+
+	if (config.verbose)
+	{
+		fprintf(stderr, "Number of section headers: %i\n", h->sh_num);
+		fprintf(stderr, "Size of section headers: %i\n", h->shent_size);
+		fprintf(stderr, "String table index: %i\n", h->sh_str_index);
+	}
+
+	backend_set_entry_point(obj, h->entry);
+
+	// validate the size of the section entry struct
+	if (h->shent_size != sizeof(elf32_section))
+	{
+		printf("Size mismatch in section: read %i expected %lu\n",
+			h->shent_size, sizeof(elf32_section));
+	}
+
+	// first, preload the section header string table
+	fseek(f, h->sh_off + h->shent_size * h->sh_str_index, SEEK_SET);
+	if (fread(&in_sec, h->shent_size, 1, f) != 1)
+	{
+		fprintf(stderr, "Error loading string table\n");
+		goto error;
+	}
+
+	section_strtab = (char*)malloc(in_sec.size);
+	fseek(f, in_sec.offset, SEEK_SET);
+	if (fread(section_strtab, in_sec.size, 1, f) != 1)
+		goto error_strtab;
+
+	// load sections
+	for (int i=1; i < h->sh_num; i++)
+	{
+		fseek(f, h->sh_off + h->shent_size * i, SEEK_SET);
+		if (fread(&in_sec, h->shent_size, 1, f) != 1)
+			goto error_strtab;
+
+		// if a section with this name doesn't already exist, add it
+		char* name = section_strtab + in_sec.name;
+		if (!backend_get_section_by_name(obj, name))
+		{
+			unsigned long flags=0;
+			unsigned char* data = NULL;
+
+			// load the section data unless it is marked as unloadable
+			if (in_sec.type != SHT_NOBITS)
+			{
+				data = (unsigned char*)malloc(in_sec.size);
+
+				fseek(f, in_sec.offset, SEEK_SET);
+				if (fread(data, in_sec.size, 1, f) != 1)
+				{
+					fprintf(stderr, "Error loading section %s data\n", name);
+					free(data);
+					goto error_strtab;
+				}
+			}
+
+			// set flags for known sections by name
+			backend_section_type t;
+			if (strcmp(name, ".text") == 0)
+				flags = SECTION_FLAG_CODE;
+			else if (strcmp(name, ".init") == 0)
+				flags = SECTION_FLAG_CODE;
+			else if (strcmp(name, ".data") == 0)
+				flags = SECTION_FLAG_INIT_DATA;
+			else if (strcmp(name, ".rodata") == 0)
+				flags = SECTION_FLAG_INIT_DATA;
+			else if (strcmp(name, ".bss") == 0)
+				flags = SECTION_FLAG_UNINIT_DATA;
+			else
+			{
+				if (in_sec.flags & SHF_EXECINSTR)
+					flags = SECTION_FLAG_CODE;
+				if (in_sec.flags & SHF_ALLOC && !(in_sec.flags & SHF_EXECINSTR) && (!in_sec.flags & SHF_WRITE))
+					flags = SECTION_FLAG_INIT_DATA;
+				if (in_sec.flags & SHF_ALLOC && !(in_sec.flags & SHF_EXECINSTR)) // not exactly accurate - better to set these flags according to section name
+					flags = SECTION_FLAG_UNINIT_DATA;
+			}
+
+			backend_section *s = backend_add_section(obj, name, in_sec.size, in_sec.addr, data, in_sec.entsize, in_sec.addralign, flags);
+			backend_section_set_type(s, elf_to_backend_section_type((section_type)in_sec.type));
+		}
+	}
+
+	// now that we have the raw data, try to format it as objects the backend can understand (strings, symbols, sections, relocs, etc)
+	sec_strtab = backend_get_section_by_name(obj, ".strtab");
+	if (!sec_strtab)
+	{
+		printf("Can't find string table section!\n");
+		goto done;
+	}
+
+	// create symbols
+	sec_symtab = backend_get_section_by_name(obj, ".symtab");
+	if (!sec_symtab)
+	{
+		printf("Can't find symbol table section!\n");
+		goto done;
+	}
+
+	// Add each symbol to the backend object
+	sym = (elf32_symbol*)sec_symtab->data;
+	for (int i=0; i < sec_symtab->size/sec_symtab->entry_size; i++, sym++)
+	{
+		const char* name = NULL;
+		backend_section* sec = NULL;
+		backend_symbol *s;
+		int symbol_flags=0;
+
+		// get the symbol name
+		if (sym->name)
+			name = (char*)sec_strtab->data + sym->name;
+
+		switch (ELF_SYM_TYPE(sym->info))
+		{
+		case ELF_ST_NOTYPE:
+			// The first symbol in an ELF file must have no name and no type
+			//printf("Skipping symbol with no type\n");
+			if (!backend_add_symbol(obj, name, 0, elf_to_backend_sym_type(sym->info), 0, 0, sec_symtab))
+				printf("Failed adding untyped symbol\n");
+			continue;
+
+		case ELF_ST_SECTION:
+			sec = backend_get_section_by_index(obj, sym->section_index);
+			if (!backend_add_symbol(obj, sec->name, 0, elf_to_backend_sym_type(sym->info), 0, 0, sec) || !sec)
+				printf("Failed adding section symbol\n");
+			//printf("Adding section symbol %s (%i)\n", sec->name, sym->section_index);
+			continue;
+
+		case ELF_ST_FILE:
+			// set this as the owning file for subsequent symbols
+			if (src_file)
+				free(src_file);
+			if (!name)
+			{
+				//printf("Found unnamed file symbol\n");
+				name = "_global.c";
+			}
+			//else
+			//	printf("Found file symbol %s\n", name);
+			src_file = strdup(name);
+			break;
+		}
+
+		// try to determine the section that this symbol belongs to
+		if (sym->section_index <= 0 ||
+			sym->section_index == ELF_SECTION_ABS ||
+			sym->section_index == ELF_SECTION_COMMON)
+		{
+			sec = NULL;
+		}
+		else
+		{
+			sec = backend_get_section_by_index(obj, sym->section_index);
+			//printf("Symbol %s is in section %i (%s)\n", name, sym->section_index, sec->name);
+		}
+
+		// set the symbol scope
+		if (sym->info & ELF_SYMBOL_GLOBAL)
+			symbol_flags |= SYMBOL_FLAG_GLOBAL;
+
+		// add the symbol
+		s = backend_add_symbol(obj, name, sym->value, elf_to_backend_sym_type(sym->info), sym->size, symbol_flags, sec);
+		if (!s)
+		{
+			// error adding symbol
+		}
+
+		// Some formats contain information relating symbols to the source file
+		// that originally defined them. If we have that information, save it in
+		// the backend object.
+		if (src_file)
+		{
+			backend_set_source_file(s, src_file);
+			//printf("Adding symbol %s to %s\n", name, src_file);
+		}
+	}
+
+	// Since we are dealing with dynamic symbols, we will need access to the dynamic
+	// symbol table, dynamic string table and version tables
+	sec_dynsym = backend_get_section_by_name(obj, ".dynsym");
+	if (!sec_dynsym)
+	{
+		printf("Can't find dynamic symbol section (.dynsym)\n");
+		goto done;
+	}
+
+	sec_dynstr = backend_get_section_by_name(obj, ".dynstr");
+	if (!sec_dynstr)
+	{
+		printf("Can't find .dynstr\n");
+		goto done;
+	}
+
+	sec_versym = backend_get_section_by_name(obj, ".gnu.version");
+	if (!sec_versym)
+	{
+		printf("Can't find .gnu.version\n");
+		goto done;
+	}
+
+	sec_versymr = backend_get_section_by_name(obj, ".gnu.version_r");
+	if (!sec_versymr)
+	{
+		printf("Can't find .gnu.version_r\n");
+		goto done;
+	}
+
+	sec_text = backend_get_section_by_name(obj, ".text");
+	if (!sec_text)
+	{
+		printf("Can't find code section!\n");
+		goto done;
+	}
+
+	sec_plt = backend_get_section_by_name(obj, ".plt");
+	if (!sec_plt)
+	{
+		printf("Can't find PLT section!\n");
+		goto done;
+	}
+
+	// Create dynamic symbols
+	// Code is linked using addresses in the PLT section. We want to have a symbol at that address
+	// so we can look up by address when disassembling code.
+	sec_rela = backend_get_section_by_name(obj, ".rela.plt");
+	if (!sec_rela)
+	{
+		printf("Can't find PLT reloc section!\n");
+		goto done;
+	}
+
+	// make sure there are dynamic symbol versions
+	rela = (elf32_rela*)sec_rela->data;
+	dsym = (elf32_symbol*)sec_dynsym->data;
+	ver = (unsigned short*)sec_versym->data;
+	versymr = (elf_verneed_header*)sec_versymr->data;
+	verent = (elf_verneed_entry*)(sec_versymr->data + versymr->aux);
+	if (!rela || !dsym || !ver || !versymr)
+		goto done;
+
+	// Each dynamic symbol has a relocation in .rela.plt
+	for (int i=0; i < sec_rela->size/sec_rela->entry_size; i++)
+	{
+		// we must look up this symbol by index in the ELF dynamic symbol table
+		unsigned long index = ELF32_R_SYM(rela->info);
+
+		//DEBUG_PRINT("Getting dynsym index=%lu\n", index);
+		dsym = (elf32_symbol*)sec_dynsym->data + index;
+		//printf("dynsym @ %p dsym @ %p\n", sec_dynsym->data, dsym);
+		strncpy(sym_name, (char*)sec_dynstr->data + dsym->name, SYMBOL_MAX_LENGTH);
+		if (strlen((char*)sec_dynstr->data + dsym->name) > SYMBOL_MAX_LENGTH)
+		{
+			printf("warning: symbol name %s will be truncated!\n", sym_name);
+			sym_name[SYMBOL_MAX_LENGTH] = 0;
+		}
+		//printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
+
+		if (!backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text))
+			printf("Error adding %s\n", sym_name);
+
+		char* module_name = (char*)sec_dynstr->data + verent->name;
+		if (module_name)
+		{
+			//printf("Looking for module %s\n", module_name);
+			backend_import* mod = backend_find_import_module_by_name(obj, module_name);
+			if (!mod)
+				mod = backend_add_import_module(obj, module_name);
+			if (mod)
+			{
+				backend_section* sec = backend_find_section_by_val(obj, rela->addr);
+				if (sec)
+				{
+					unsigned long plt_addr = *(unsigned long*)(sec->data + (rela->addr - sec->address));
+					unsigned long sym_addr = plt_addr - 6; // why 6?
+					if (!backend_add_import_function(mod, sym_name, sym_addr))
+						printf("Error adding import function %s\n", sym_name);
+				}
+				else
+				{
+					printf("Error finding section for address 0x%x\n", rela->addr);
+				}
+			}
+		}
+		else
+		{
+			printf("  No import module\n");
+		}
+
+		rela++;
+	}
+
+done:
+	free(section_strtab);
+
+	printf("ELF32 loading done (%i symbols, %i relocs)\n", backend_symbol_count(obj), backend_relocation_count(obj));
+	printf("-----------------------------------------\n");
+	return obj;
+
+error_strtab:
+	free(section_strtab);
+error:
+	backend_destructor(obj);
+	return NULL;
+	return obj;
 }
 
 static backend_object* elf64_read_file(FILE* f, elf64_header* h)
@@ -848,7 +1192,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    
    // load sections
    for (int i=1; i < h->sh_num; i++)
-   { 
+   {
       fseek(f, h->sh_off + h->shent_size * i, SEEK_SET);
 		if (fread(&in_sec, h->shent_size, 1, f) != 1)
 			goto error_strtab;
@@ -1078,7 +1422,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 
       if (!backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text))
 			printf("Error adding %s\n", sym_name);
-      
+
       char* module_name = (char*)sec_dynstr->data + verent->name;
       if (module_name)
       {
@@ -1109,7 +1453,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 
       rela++;
    }
- 
+
 done:
    free(section_strtab);
 
@@ -1522,10 +1866,10 @@ static int elf32_write_file(backend_object* obj, const char* filename)
       else if (strcmp(".shstrtab", bs->name) == 0)
       {
          // write the .shstrtab section header
-         printf("Writing .shstrtab section\n");
          sh.type = SHT_STRTAB;
          sh.offset = fpos_data;
          sh.size = shstrtab_entry - shstrtab;
+			sh.flags = 0;
 
          // write the data of the section header string table
          if (sh.size)
