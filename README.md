@@ -20,6 +20,13 @@ External libraries
 ------------------
 All external dependencies are included as git submodules. The advantage of having them as submodules is that we know their location at build-time. That way, we can point to its headers and libraries with a feeling of certainty during building/linking/execution. See 'How to clone & build' above for instructions on cloning with submodules.
 
+Usage
+=====
+You may have to exclude some symbols that are present in the source binary, but that you don't want in the resulting objects. This is especially true of symbols that you know are going to be added automatically during linking later on. There is probably a nice way to automate this, but for now the symbols must be explicitly listed with the -I flag.
+```
+delinker -I_start -I_IO_stdin_used -I__dso_handle -I_init -I_fini -I__TMC_END__ -I__libc_csu_fini -I__libc_csu_init hello
+```
+
 Capstone
 ========
 For disassembly, the udis86 library has been replaced with the capstone library. Capstone supports multiple platforms, but otherwise works with a similar API to udis86. The main Makefile for the delinker will automatically build capstone. However, if the need arises to do any tweaking, they have a comprehensive help file (in capstone/COMPILE.TXT) but basically to build it, you need to:
