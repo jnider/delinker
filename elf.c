@@ -1761,16 +1761,6 @@ static int elf32_write_file(backend_object* obj, const char* filename)
          if (sh.link == -1)
             printf("Error getting .symtab index\n");
 
-         // info contains the index of the first non-local symbol
-			sh.info=1; // start at 1 because of the null symbol
-         sym = backend_get_first_symbol(obj);
-         while (sym)
-         {
-            sh.info++;
-				sym = backend_get_next_symbol(obj);
-         }
-			printf("First global symbol index %i\n", sh.info);
-
          //printf("symtab index=%i\n", sh.link);
          sh.entsize = sizeof(elf32_symbol);
 			sh.size = (backend_symbol_count(obj) + 1) * sizeof(elf32_symbol); // add 1 for the null symbol
@@ -1781,11 +1771,11 @@ static int elf32_write_file(backend_object* obj, const char* filename)
             fpos_data = ALIGN(fpos_data, sh.addralign);
             sh.offset = fpos_data;
             fpos_cur = ftell(f);
-            printf("We have %u symbols\n", backend_symbol_count(obj)+1);
             fseek(f, sh.offset, SEEK_SET);
       
             // write an empty symbol first
             fwrite(&s, sizeof(elf32_symbol), 1, f);
+				sh.info++;
 
             // now the rest of the symbols
             sym = backend_get_first_symbol(obj);
@@ -1794,41 +1784,30 @@ static int elf32_write_file(backend_object* obj, const char* filename)
                s.name = strtab_entry - strtab;
                s.info = backend_to_elf_sym_type(sym->type);
                s.other = 0;
-               s.section_index = text_index; // link the symbol to the .text section
+               s.section_index = ELF_SECTION_UNDEF; // default section
                s.value = sym->val;
                s.size = sym->size;
 
-               //printf("Writing symbol %s\n", sym->name);
-
-               // take into account any flags set in the backend
                if (sym->flags & SYMBOL_FLAG_GLOBAL)
                   s.info |= ELF_SYMBOL_GLOBAL;
-               if (sym->flags & SYMBOL_FLAG_EXTERNAL)
-                  s.section_index = ELF_SECTION_UNDEF;
+					else
+						sh.info++;
+
+					// if the symbol points to a section and is not external, set the index
+					if (sym->section && !(sym->flags & SYMBOL_FLAG_EXTERNAL))
+					{
+						//printf("Getting index for section %s for symbol %s\n", sym->section->name, sym->name);
+						s.section_index = backend_get_section_index_by_name(obj, sym->section->name);
+					}
+               if (sym->type == SYMBOL_TYPE_FILE)
+                  s.section_index = ELF_SECTION_ABS;
 
                // if this is an external function, it can't have an address
                if (sym->type == SYMBOL_TYPE_NONE &&
                   sym->flags & (SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL))
                   s.value = 0;
 
-               // if this is a section symbol, make sure the index is updated to the correct section
-               if (sym->type == SYMBOL_TYPE_SECTION)
-               {
-                  //printf("Writing section symbol %s\n", sym->name);
-                  s.section_index = backend_get_section_index_by_name(obj, sym->name); // which section does this symbol relate to
-                  if (s.section_index == -1)
-                  {
-                     printf("Error getting %s index\n", sym->name);
-                     sym = backend_get_next_symbol(obj);
-                     continue;
-                  }
-                  //sym->name = 0;
-                  //s.name = 0;
-               }
-
-               if (sym->type == SYMBOL_TYPE_FILE)
-                  s.section_index = ELF_SECTION_ABS;
-
+					// set the name to point to the string table
                if (sym->name)
                {
                   if (strtab_entry - strtab + strlen(sym->name) > strtab_size)
