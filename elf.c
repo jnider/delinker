@@ -565,6 +565,8 @@ elf_x86_64_reloc_type backend_to_elf64_reloc_type(backend_reloc_type t)
       return R_AMD64_32;
    case RELOC_TYPE_PC_RELATIVE:
       return R_AMD64_PC32;
+   case RELOC_TYPE_PLT:
+      return R_AMD64_PLT32;
    }
 
    return R_AMD64_NONE;
@@ -1418,7 +1420,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
          printf("warning: symbol name %s will be truncated!\n", sym_name);
          sym_name[SYMBOL_MAX_LENGTH] = 0;
       }
-      //printf("Found symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
+      printf("Found dynamic symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
 
       if (!backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text))
 			printf("Error adding %s\n", sym_name);
@@ -1445,6 +1447,8 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 					printf("Error finding section for address 0x%lx\n", rela->addr);
 				}
          }
+			else
+				printf("  No import module\n");
       }
 		else
 		{
@@ -2058,8 +2062,8 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 					rela.addr = r->offset;
 					rela.info = ELF64_R_INFO(index, reloc_type);
 					rela.addend = r->addend;
-					printf("writing reloc for 0x%lx symbol: %s (%u) addend: 0x%lx\n",
-						rela.addr, r->symbol->name, index, rela.addend);
+					printf("writing reloc for 0x%lx symbol: %s (%u) addend: 0x%lx type=%u\n",
+						rela.addr, r->symbol->name, index, rela.addend, reloc_type);
 					fwrite(&rela, sizeof(elf64_rela), 1, f);
 					r = backend_get_next_reloc(obj);
             }

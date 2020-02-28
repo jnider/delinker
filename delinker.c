@@ -349,7 +349,7 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 	if (bs)
 	{
 		// add a relocation
-		printf("   Creating relocation to %s @ 0x%x\n", bs->name, offset);
+		printf("   Creating (known) relocation to %s @ 0x%x\n", bs->name, offset);
 		return backend_add_relocation(obj, offset, t, -4, bs);
 	}
 	else
@@ -375,7 +375,8 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 				if (bs)
 				{
 					//printf("  Creating PC_REL relocation to %s @offset 0x%x (flags=%u)\n", bs->name, offset, bs->flags);
-					return backend_add_relocation(obj, offset, t, -4, bs);
+					printf("   Creating (PLT) relocation to %s @ 0x%x\n", bs->name, offset);
+					return backend_add_relocation(obj, offset, RELOC_TYPE_PLT, -4, bs);
 				}
 			}
 			else
@@ -414,12 +415,14 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 				{
 					addend = val - sec->address - 4;
 					//printf("  Creating PC_REL to %s @offset 0x%x\n", bs->name, offset);
+					printf("   Creating relocation to %s @ 0x%x\n", bs->name, offset);
 					return backend_add_relocation(obj, offset, t, addend, bs);
 				}
 				else if (t == RELOC_TYPE_OFFSET)
 				{
 					addend = val - sec->address;
 					//printf("  Creating REL_OFFSET to %s+%i @offset 0x%x\n", bs->name, addend, offset);
+					printf("   Creating relocation to %s @ 0x%x\n", bs->name, offset);
 					return backend_add_relocation(obj, offset, t, addend, bs);
 				}
 				else
@@ -452,7 +455,6 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 	{
 		long val;
 		unsigned int* val_ptr=0;
-		//unsigned int offset = addr + 1; // offset of the operand
 		backend_symbol *bs=NULL;
 		int opcode_size;
 
@@ -471,7 +473,6 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
   					// be 98 82 40 00       	mov    $0x408298,%esi
   					// bf a0 af 40 00       	mov    $0x40afa0,%edi
   					// c7 05 ac af 40 00 01 	movl   $0x1,0x40afac
-			printf("ins: %s@0x%lx (0x%x) len=%i\n", cs_ins->mnemonic, cs_ins->address, cs_ins->bytes[0], cs_ins->size);
 			if (cs_ins->size == 6 && (cs_ins->bytes[0] == 0x89 ||
 									cs_ins->bytes[0] == 0x8a  ||
 									cs_ins->bytes[0] == 0x8b))
@@ -486,7 +487,10 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 				val_ptr = (unsigned int*)(cs_ins->bytes + 2);
 
 			if (val_ptr)
-				create_reloc(obj, RELOC_TYPE_OFFSET, *val_ptr, cs_ins->address+2);
+			{
+				if (create_reloc(obj, RELOC_TYPE_OFFSET, *val_ptr, cs_ins->address+2) == 0)
+					*val_ptr = 0;
+			}
 			break;
 
 		case X86_INS_JMP:
@@ -504,44 +508,12 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 				val_ptr = (unsigned int*)(cs_ins->bytes + 1);
 				val = sec->address + cs_ins->address + cs_ins->size + *val_ptr;
 			}
-			// fall through
+			if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+1) == 0)
+				*val_ptr = 0;
 
 		// callq calls a function with 1 byte opcode and signed 32-bit relative offset
 		case X86_INS_CALL:
 			//printf("Found call @ 0x%lx to 0x%lx\n", sec_text->address + addr, val); 
-
-			if (val_ptr)
-			{
-				// now we can look up this absolute address in the symbol table to see which static function is called
-				backend_symbol *bs = backend_find_symbol_by_val(obj, val);
-				if (bs)
-				{
-					//printf("Adding PC_REL reloc sym=%s\n", bs?bs->name:"none");
-					backend_add_relocation(obj, 0, RELOC_TYPE_PC_RELATIVE, -4, bs);
-				}
-				else
-				{
-					sec = backend_find_section_by_val(obj, val);
-					if (sec)
-					{
-						//printf("Address 0x%lx is in section %s\n", val, sec->name);
-
-						bs = backend_find_import_by_address(obj, val);
-						if (bs)
-						{
-							printf("Found import symbol %s\n", bs->name);
-							bs = backend_find_symbol_by_name(obj, bs->name);
-							if (bs)
-							{
-								//printf("Adding reloc for %s\n", bs->name);
-								backend_add_relocation(obj, 0, RELOC_TYPE_PC_RELATIVE, -4, bs);
-							}
-						}
-					}
-				}
-				*val_ptr = 0;
-			}
-
 			break;
 		}
 	}
@@ -759,6 +731,10 @@ static inline int need_reloc(backend_reloc *r, backend_object *src, backend_obje
 		break;
 
 	case RELOC_TYPE_PC_RELATIVE:
+		address == r->offset;
+		break;
+
+	case RELOC_TYPE_PLT:
 		address == r->offset;
 		break;
 

@@ -82,6 +82,7 @@ typedef enum backend_reloc_type
 	RELOC_TYPE_NONE,
 	RELOC_TYPE_OFFSET,			// straight substitution for the symbol value
 	RELOC_TYPE_PC_RELATIVE,		// a jump/branch address relative to the PC; requires an offset (addend) usually of -4, but architecture dependent
+	RELOC_TYPE_PLT,				// for linking with a dynamic library function
 } backend_reloc_type;
 
 typedef struct backend_section

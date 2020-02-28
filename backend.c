@@ -756,6 +756,8 @@ const char* backend_lookup_reloc_type(backend_reloc_type t)
 		return "offset";
 	case RELOC_TYPE_PC_RELATIVE:
 		return "pc relative";
+	case RELOC_TYPE_PLT:
+		return "PLT relative";
 	}
 
 	return "unknown";
