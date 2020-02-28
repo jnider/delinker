@@ -414,15 +414,13 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 				if (t == RELOC_TYPE_PC_RELATIVE)
 				{
 					addend = val - sec->address - 4;
-					//printf("  Creating PC_REL to %s @offset 0x%x\n", bs->name, offset);
-					printf("   Creating relocation to %s @ 0x%x\n", bs->name, offset);
+					printf("  Creating PC_REL to %s +0x%x\n", bs->name, addend);
 					return backend_add_relocation(obj, offset, t, addend, bs);
 				}
 				else if (t == RELOC_TYPE_OFFSET)
 				{
 					addend = val - sec->address;
-					//printf("  Creating REL_OFFSET to %s+%i @offset 0x%x\n", bs->name, addend, offset);
-					printf("   Creating relocation to %s @ 0x%x\n", bs->name, offset);
+					printf("  Creating REL_OFFSET to %s+%i @offset 0x%x\n", bs->name, addend, offset);
 					return backend_add_relocation(obj, offset, t, addend, bs);
 				}
 				else
@@ -899,10 +897,11 @@ static int copy_data(backend_object* src, backend_object* dest)
 				goto next;
 			}
 
-			outsec->data = (unsigned char*)malloc(insec->size);
-			outsec->size = insec->size;
+			unsigned int old_size = outsec->size;
+			outsec->data = (unsigned char*)realloc(outsec->data, old_size + insec->size);
+			outsec->size += insec->size;
 			if (!(insec->flags & SECTION_FLAG_UNINIT_DATA))
-				memcpy(outsec->data, insec->data, insec->size);
+				memcpy(outsec->data + old_size, insec->data, insec->size);
 		}
 next:
 		insec = backend_get_next_section(src);
@@ -964,7 +963,7 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 			}
 		}
 
-		printf("Adding section %s (flags=0x%x)\n", sym->section->name, sym->section->flags);
+		printf("Adding section %s (flags=0x%x) for symbol %s\n", sym->section->name, sym->section->flags, sym->name);
 		sec_out = backend_add_section(oo, sym->section->name, size, 0, data,
 			0, sym->section->alignment, sym->section->flags);
 
@@ -1049,8 +1048,8 @@ static void finalize_objects(linked_list *oo_list, backend_object *src)
 		//fixup_function_data(oo); //this seems like a poorly written optimization
 
 		// sometimes, data symbols don't have a size. In that case, we must copy all data
-		//printf("Copy data\n");
-		//copy_data(obj, oo);
+		printf("Copy data\n");
+		copy_data(src, oo);
 	}
 }
 
