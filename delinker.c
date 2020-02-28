@@ -339,17 +339,17 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 	sec = backend_find_section_by_val(obj, val);
 	if (!sec)
 	{
-		printf("Doesn't seem to have a containing section\n");
+		printf("Address 0x%x doesn't have a containing section\n", val);
 		return -2;
 	}
 
 	// Check to see if this is a known symbol
-	//printf("Ins @ 0x%x: looking for symbol @ 0x%x\n", offset, val);
+	printf("Offset @ 0x%x: looking for symbol @ 0x%x\n", offset, val);
 	bs = backend_find_symbol_by_val(obj, val);
 	if (bs)
 	{
 		// add a relocation
-		//printf("   Creating relocation to %s @ 0x%x\n", bs->name, offset);
+		printf("   Creating relocation to %s @ 0x%x\n", bs->name, offset);
 		return backend_add_relocation(obj, offset, t, -4, bs);
 	}
 	else
@@ -806,7 +806,7 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 	backend_section* sec;
 	int first_function_offset = -1;
  
-	printf("Copying relocations for %s\n", dest->name);
+	printf("=== Copying relocations for %s\n", dest->name);
 	//printf("Source file has %u relocs\n", backend_relocation_count(src));
 
 	// why am I doing this here?
@@ -830,35 +830,40 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 		// file. Then see if that symbol made it into this output file.
 		if (need_reloc(r, src, dest) == 0)
 		{
+			// Check to see if the output object already contains a symbol with this name.
+			// All (real) symbols belonging to this file should have already been copied,
+			// so if a symbol is missing, it must be external and must be added.
 			//printf("Copying reloc @offset=%lx to symbol %s\n", r->offset, target->name);
 			dest_target = backend_find_symbol_by_name(dest, target->name);
 			if (!dest_target)
 			{
-				unsigned long value = 0;
 				backend_section *dest_sec = backend_get_section_by_name(dest, target->section->name);
 				if (!dest_sec)
 				{
 					// Add the missing section and section symbol
+					printf("Adding section %s (flags=0x%x)\n", target->section->name, target->section->flags);
 					dest_sec = backend_add_section(dest, target->section->name, 0, target->section->address,
 						NULL, 0, target->section->alignment, target->section->flags);
-					backend_add_symbol(dest, target->section->name, 0, SYMBOL_TYPE_SECTION, target->size, 0, dest_sec);
 				}
 
-				// if the relocation is to a data object, we need the value since it is the offset from
-				// the beginning of the data segment to which it belongs. Relocations to functions and
-				// other symbols should have a value of 0.
 				if (target->type == SYMBOL_TYPE_FUNCTION)
-					value = 0;
-				else
-					value = target->val;
-
-				//printf("Adding symbol %s (%i) to section %s (flags=%u)\n", target->name, target->type, target->section->name, target->flags);
-				dest_target = backend_add_symbol(dest, target->name, value, target->type, target->size,
-					target->flags, dest_sec);
-				if (!dest_target)
 				{
-					printf("Can't add symbol %s to output file\n", target->name);
-					break;
+					printf("Adding external symbol %s\n", target->name);
+					dest_target = backend_add_symbol(dest, target->name, 0, SYMBOL_TYPE_NONE, 0,
+						SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, NULL);
+					if (!dest_target)
+					{
+						printf("Error adding external symbol %s to output file %s\n", target->name, dest->name);
+						break;
+					}
+				}
+				else
+				{
+					// Generally, section symbols don't have a name. But there doesn't seem to be
+					// any reason why not, and it makes it easier to debug
+					dest_target = backend_add_symbol(dest, target->section->name, target->val, SYMBOL_TYPE_SECTION, target->size, 0, dest_sec);
+					if (!dest_target)
+						printf("Error adding section symbol %s\n", dest_target->name);
 				}
 			}
 
@@ -868,7 +873,7 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 				// calculate the relocation offset from start of section
 				unsigned int offset = r->offset - besym->section->address;
 
-				printf("Adding relocation to symbol %s (offset=0x%x)\n", dest_target->name, offset);
+				printf("Adding relocation to symbol %s (offset=0x%x type=%i)\n", dest_target->name, offset, dest_target->type);
 				backend_add_relocation(dest, offset, r->type, r->addend, dest_target);
 			}
 			else
@@ -968,8 +973,6 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 	sec_out = backend_get_section_by_name(oo, sym->section->name);
 	if (!sec_out)
 	{
-		//printf("No output section named %s - creating (flags=0x%x)\n", sym->section->name, sym->section->flags);
-
 		// if the object is not empty, copy it
 		if (sym->size)
 		{
@@ -1027,7 +1030,7 @@ static int write_symbol(backend_object *oo, backend_object *obj, struct backend_
 	}
 
 	// add the function symbol
-	printf("Adding symbol %s @ 0x%lx (type=%i size=%lu) to %s\n", sym->name, sec_out->address+offset, sym->type, sym->size, sym->src);
+	printf("Adding symbol %s @ 0x%lx (type=%i size=%lu) to %s\n", sym->name, sec_out->address+offset, sym->type, sym->size, oo->name);
 	sym = backend_add_symbol(oo, sym->name, sec_out->address+offset, sym->type, sym->size, sym->flags, sec_out);
 	if (!sym)
 		printf("Error adding symbol\n"); 
