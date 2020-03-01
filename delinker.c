@@ -339,7 +339,7 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 	sec = backend_find_section_by_val(obj, val);
 	if (!sec)
 	{
-		printf("Address 0x%x doesn't have a containing section\n", val);
+		printf("  Address 0x%x doesn't have a containing section\n", val);
 		return -2;
 	}
 
@@ -452,7 +452,7 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
 	{
 		long val;
-		unsigned int* val_ptr=0;
+		int* val_ptr=0;
 		backend_symbol *bs=NULL;
 		int opcode_size;
 
@@ -474,15 +474,15 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			if (cs_ins->size == 6 && (cs_ins->bytes[0] == 0x89 ||
 									cs_ins->bytes[0] == 0x8a  ||
 									cs_ins->bytes[0] == 0x8b))
-				val_ptr = (unsigned int*)(cs_ins->bytes + 2);
+				val_ptr = (int*)(cs_ins->bytes + 2);
 			else if (cs_ins->size == 5 && (cs_ins->bytes[0] == 0xa1 ||
 									cs_ins->bytes[0] == 0xa3  ||
 									cs_ins->bytes[0] == 0xb8 ||
 									cs_ins->bytes[0] == 0xbe ||
 									cs_ins->bytes[0] == 0xbf))
-				val_ptr = (unsigned int*)(cs_ins->bytes + 1);
+				val_ptr = (int*)(cs_ins->bytes + 1);
 			else if (cs_ins->size == 7 && (cs_ins->bytes[0] == 0xc7))
-				val_ptr = (unsigned int*)(cs_ins->bytes + 2);
+				val_ptr = (int*)(cs_ins->bytes + 2);
 
 			if (val_ptr)
 			{
@@ -494,20 +494,24 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 		case X86_INS_JMP:
 					// ff 25 98 62 45 00       jmp    *0x456298
 					// e8 00 00 00 00          call   33 <fn000020+0x13>
+					// e9 ae cc ff ff          jmp    8048660 <malloc@plt>
 			if (cs_ins->size == 6 && (cs_ins->bytes[0] == 0xFF)) 
 			{
-				val_ptr = (unsigned int*)(cs_ins->bytes + 2);
+				val_ptr = (int*)(cs_ins->bytes + 2);
 				val = *val_ptr;
 			}
-			else if (cs_ins->size == 5 && (cs_ins->bytes[0] == 0xe8))
+			else if (cs_ins->size == 5 && (cs_ins->bytes[0] == 0xe8 || cs_ins->bytes[0] == 0xe9))
 			{
 				// this instruction uses a relative offset, so to get the absolute address, add the:
 				// section base address + current instruction offset + length of current instruction + call offset
-				val_ptr = (unsigned int*)(cs_ins->bytes + 1);
-				val = sec->address + cs_ins->address + cs_ins->size + *val_ptr;
+				val_ptr = (int*)(cs_ins->bytes + 1);
+				val = cs_ins->address + cs_ins->size + *val_ptr;
+				printf("JMP at %lx val=%lx\n", cs_ins->address, val);
 			}
 			if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+1) == 0)
-				*val_ptr = 0;
+				break;
+				//*val_ptr = 0;
+			break;
 
 		// callq calls a function with 1 byte opcode and signed 32-bit relative offset
 		case X86_INS_CALL:
@@ -527,7 +531,7 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 
 	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
 	{
-		unsigned int val=0;
+		int val=0;
 		//unsigned int offset = addr + 1; // offset of the operand
 		backend_symbol *bs=NULL;
 		int opcode_size;
@@ -1029,7 +1033,6 @@ static int close_output_object(backend_object *oo)
 	int ret = 0;
 	if (config.verbose)
 		fprintf(stderr, "Writing file %s\n", oo->name);
-	printf("Writing file %s\n", oo->name);
 	if (backend_write(oo))
 		ret = -ERR_CANT_WRITE_OO;
 	backend_destructor(oo);
@@ -1182,6 +1185,8 @@ unlink_file(const char* input_filename, backend_type output_target)
 				}
 
 				oo = get_output_object(oo_list, sym->name, output_target);
+				if (!oo)
+					printf("Error getting output object\n");
 
 				if (write_symbol(oo, obj, sym, output_target) < 0)
 					printf("Error adding function symbol for %s\n", sym->name);
@@ -1232,6 +1237,7 @@ skip_ext:
 		write_output_objects(oo_list);
 	}
 	ll_destroy(oo_list);
+	oo_list = NULL;
 
 	return 0;
 }
