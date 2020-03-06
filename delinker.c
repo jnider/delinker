@@ -621,6 +621,8 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 		case X86_INS_VMOVSD:
 			// c5 fb 10 05 71 3d 00 00		vmovsd 0x3d71(%rip),%xmm0
 			// c5 fb 11 86 90 c1 ff ff  	vmovsd %xmm0,-0x3e70(%rsi)
+                case X86_INS_VMOVDQA:
+			// c5 f9 6f 0d f0 16 00 00   vmovdqa 0x16f0(%rip),%xmm1
 		case X86_INS_VMULSD:
 			// c5 eb 59 3d 7d 2f 00 00 	vmulsd 0x2f7d(%rip),%xmm2,%xmm7
 			int *val_ptr = (int*)((char*)pc - cs_ins->size + 4);
