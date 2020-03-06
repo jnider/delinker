@@ -503,10 +503,9 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			else if (cs_ins->size == 5 && (cs_ins->bytes[0] == 0xe8 || cs_ins->bytes[0] == 0xe9))
 			{
 				// this instruction uses a relative offset, so to get the absolute address, add the:
-				// section base address + current instruction offset + length of current instruction + call offset
+				// current instruction offset + length of current instruction + call offset
 				val_ptr = (int*)(cs_ins->bytes + 1);
 				val = cs_ins->address + cs_ins->size + *val_ptr;
-				printf("JMP at %lx val=%lx\n", cs_ins->address, val);
 			}
 			if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+1) == 0)
 				break;
@@ -615,6 +614,20 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 			}
 
 			// create a relocation for a call instruction
+			break;
+
+		case X86_INS_VMOVAPD:
+			// c5 fd 28 1d f7 3d 00 00		vmovapd 0x3df7(%rip),%ymm3
+		case X86_INS_VMOVSD:
+			// c5 fb 10 05 71 3d 00 00		vmovsd 0x3d71(%rip),%xmm0
+			// c5 fb 11 86 90 c1 ff ff  	vmovsd %xmm0,-0x3e70(%rsi)
+		case X86_INS_VMULSD:
+			// c5 eb 59 3d 7d 2f 00 00 	vmulsd 0x2f7d(%rip),%xmm2,%xmm7
+			int *val_ptr = (int*)((char*)pc - cs_ins->size + 4);
+			val = cs_ins->address + *val_ptr + cs_ins->size;
+			//printf("Found VMOVAPD to 0x%x @ 0x%lx\n", val, cs_ins->address);
+			if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+4) == 0)
+				*val_ptr = 0;
 			break;
 
 		//case CALL: // opcode FF
