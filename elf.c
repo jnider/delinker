@@ -585,17 +585,17 @@ backend_section_type elf_to_backend_section_type(section_type t)
    case SHT_STRTAB:
 		return SECTION_TYPE_STRTAB;
    case SHT_RELA:
-		return SECTION_TYPE_RELOC;
+		return SECTION_TYPE_RELA;
    case SHT_HASH:
 		return SECTION_TYPE_NULL;
    case SHT_DYNAMIC:
-		return SECTION_TYPE_RELOC;
+		return SECTION_TYPE_DYNSYM;
    case SHT_NOTE:
-		return SECTION_TYPE_NULL;
+		return SECTION_TYPE_NOTE;
    case SHT_NOBITS:
-		return SECTION_TYPE_NULL;
+		return SECTION_TYPE_NOBITS;
    case SHT_REL:
-		return SECTION_TYPE_RELOC;
+		return SECTION_TYPE_REL;
    case SHT_SHLIB:
 		return SECTION_TYPE_NULL;
    case SHT_DYNSYM:
@@ -893,16 +893,20 @@ static backend_object* elf32_read_file(FILE* f, elf32_header* h)
 	sec_strtab = backend_get_section_by_name(obj, ".strtab");
 	if (!sec_strtab)
 	{
-		printf("Can't find string table section!\n");
-		goto done;
+		sec_strtab = backend_get_section_by_type(obj, SECTION_TYPE_STRTAB);
+		if (!sec_strtab)
+			printf("Warning: can't find string table section!\n");
+		//goto done;
 	}
 
 	// create symbols
 	sec_symtab = backend_get_section_by_name(obj, ".symtab");
 	if (!sec_symtab)
 	{
-		printf("Can't find symbol table section!\n");
-		goto done;
+		sec_symtab = backend_get_section_by_type(obj, SECTION_TYPE_SYMTAB);
+		if (!sec_symtab)
+			printf("Warning: can't find symbol table section!\n");
+		goto dynsym;
 	}
 
 	// Add each symbol to the backend object
@@ -915,7 +919,7 @@ static backend_object* elf32_read_file(FILE* f, elf32_header* h)
 		int symbol_flags=0;
 
 		// get the symbol name
-		if (sym->name)
+		if (sym->name && sec_strtab)
 			name = (char*)sec_strtab->data + sym->name;
 
 		switch (ELF_SYM_TYPE(sym->info))
@@ -983,6 +987,7 @@ static backend_object* elf32_read_file(FILE* f, elf32_header* h)
 		}
 	}
 
+dynsym:
 	// Since we are dealing with dynamic symbols, we will need access to the dynamic
 	// symbol table, dynamic string table and version tables
 	sec_dynsym = backend_get_section_by_name(obj, ".dynsym");
@@ -1023,14 +1028,14 @@ static backend_object* elf32_read_file(FILE* f, elf32_header* h)
 	sec_plt = backend_get_section_by_name(obj, ".plt");
 	if (!sec_plt)
 	{
-		printf("Can't find PLT section!\n");
-		goto done;
+		printf("Warning: can't find PLT section!\n");
+		//goto done;
 	}
 
 	// Create dynamic symbols
 	// Code is linked using addresses in the PLT section. We want to have a symbol at that address
 	// so we can look up by address when disassembling code.
-	sec_rela = backend_get_section_by_name(obj, ".rela.plt");
+	sec_rela = backend_get_section_by_type(obj, SECTION_TYPE_REL);
 	if (!sec_rela)
 	{
 		printf("Can't find PLT reloc section!\n");
@@ -1251,16 +1256,16 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    sec_strtab = backend_get_section_by_name(obj, ".strtab");
    if (!sec_strtab)
    {
-      printf("Can't find string table section!\n");
-      goto done;
+      printf("Warning: can't find string table section!\n");
+      //goto done;
    }
 
    // create symbols
    sec_symtab = backend_get_section_by_name(obj, ".symtab");
    if (!sec_symtab)
    {
-      printf("Can't find symbol table section!\n");
-      goto done;
+      printf("Warning: can't find symbol table section!\n");
+      goto dynsym;
    }
 
 	// Add each symbol to the backend object
@@ -1273,7 +1278,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 		int symbol_flags=0;
 
 		// get the symbol name
-		if (sym->name)
+		if (sym->name && sec_strtab)
 			name = (char*)sec_strtab->data + sym->name;
 
 		switch (ELF_SYM_TYPE(sym->info))
@@ -1342,6 +1347,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 
    }
 
+dynsym:
 	// Since we are dealing with dynamic symbols, we will need access to the dynamic
 	// symbol table, dynamic string table and version tables
    sec_dynsym = backend_get_section_by_name(obj, ".dynsym");
@@ -1382,8 +1388,8 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    sec_plt = backend_get_section_by_name(obj, ".plt");
    if (!sec_plt)
    {
-      printf("Can't find PLT section!\n");
-      goto done;
+      printf("Warning: can't find PLT section!\n");
+      //goto done;
    }
 
    // Create dynamic symbols
