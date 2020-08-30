@@ -67,8 +67,14 @@ typedef enum backend_section_type
 	SECTION_TYPE_PROG,	// Contains executable code, data or tables required during execution
 	SECTION_TYPE_SYMTAB,	// Symbol table
 	SECTION_TYPE_STRTAB,	// String table
-	SECTION_TYPE_RELOC,	// Relocation table
-	// version table, constructors, destructors, many more missing
+	SECTION_TYPE_RELA,	// Relocation table
+	SECTION_TYPE_HASH,
+	SECTION_TYPE_DYNAMIC,
+	SECTION_TYPE_NOTE,
+	SECTION_TYPE_NOBITS,
+	SECTION_TYPE_REL,
+	SECTION_TYPE_SHLIB,
+	SECTION_TYPE_DYNSYM,
 } backend_section_type;
 
 typedef enum backend_symbol_flag
@@ -206,6 +212,7 @@ void backend_section_set_type(backend_section *s, backend_section_type t);
 backend_section* backend_find_section_by_val(backend_object* obj, unsigned long val);
 backend_section* backend_get_section_by_index(backend_object* obj, unsigned int index);
 backend_section* backend_get_section_by_name(backend_object* obj, const char* name);
+backend_section* backend_get_section_by_type(backend_object* obj, unsigned int t);
 int backend_get_section_index_by_name(backend_object* obj, const char* name);
 backend_section* backend_get_first_section(backend_object* obj);
 backend_section* backend_get_next_section(backend_object* obj);

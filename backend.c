@@ -564,6 +564,20 @@ backend_section* backend_get_section_by_name(backend_object* obj, const char* na
    return NULL;
 }
 
+backend_section* backend_get_section_by_type(backend_object* obj, unsigned int t)
+{
+	if (!obj || !obj->section_table)
+		return NULL;
+
+   for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
+   {
+      backend_section* sec = (backend_section*)iter->val;
+      if (t == sec->type)
+         return sec;
+   }
+   return NULL;
+}
+
 int backend_get_section_index_by_name(backend_object* obj, const char* name)
 {
 	int index = 0;
