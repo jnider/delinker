@@ -7,6 +7,7 @@
 #define DECLARE_BACKEND_INIT_FUNC(_x) extern int _x##_init()
 #define BACKEND_INIT_FUNC(_x) _x##_init
 
+DECLARE_BACKEND_INIT_FUNC(mz);
 DECLARE_BACKEND_INIT_FUNC(pe);
 DECLARE_BACKEND_INIT_FUNC(elf32);
 DECLARE_BACKEND_INIT_FUNC(elf64);
@@ -15,6 +16,7 @@ DECLARE_BACKEND_INIT_FUNC(elf64);
 typedef int (*backend_init_func)(void);
 static backend_init_func backend_table[] = 
 {
+	BACKEND_INIT_FUNC(mz),
 	BACKEND_INIT_FUNC(pe),
 	BACKEND_INIT_FUNC(elf32),
 	BACKEND_INIT_FUNC(elf64),

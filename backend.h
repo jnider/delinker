@@ -23,6 +23,7 @@ public functions for talking to backends */
 typedef enum backend_type
 {
    OBJECT_TYPE_NONE,
+   OBJECT_TYPE_MZ,
    OBJECT_TYPE_PE32,
    OBJECT_TYPE_PE_ROM,
    OBJECT_TYPE_PE32PLUS,

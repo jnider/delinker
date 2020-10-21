@@ -1149,7 +1149,6 @@ error_strtab:
 error:
 	backend_destructor(obj);
 	return NULL;
-	return obj;
 }
 
 void elf64_add_import_from_rela(backend_object *obj, elf64_rela* rela, backend_section *sec_symtab, backend_section *sec_strtab, backend_section *sec_versymr)

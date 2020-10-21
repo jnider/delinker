@@ -1,4 +1,4 @@
-C_SRC_UNLINKER = delinker.c backend.c pe.c elf.c ll.c
+C_SRC_UNLINKER = delinker.c backend.c pe.c elf.c ll.c mz.c lz.c x86.c
 CPP_SRC_UNLINKER = reconstruct.cpp
 C_OBJS_UNLINKER = $(C_SRC_UNLINKER:%.c=%.o)
 CPP_OBJS_UNLINKER += $(CPP_SRC_UNLINKER:%.cpp=%.o)
