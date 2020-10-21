@@ -1253,7 +1253,9 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    }
 
    // now that we have the raw data, try to format it as objects the backend can understand (strings, symbols, sections, relocs, etc)
-   sec_strtab = backend_get_section_by_name(obj, ".strtab");
+
+	// find a string table section for looking up symbol names later. There may be more than one, but for now assume there is only one
+   sec_strtab = backend_get_section_by_type(obj, SECTION_TYPE_STRTAB);
    if (!sec_strtab)
    {
       printf("Warning: can't find string table section!\n");
