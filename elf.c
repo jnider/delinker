@@ -354,27 +354,27 @@ typedef struct elf64_symbol
 typedef struct elf64_rela
 {
    unsigned long addr;
-   unsigned long info; // see ELF_R_
+   unsigned long info; // see ELF64_R_
    long addend;
 } elf64_rela;
 
 typedef struct elf_verneed_header
 {
-  unsigned short version;
+  unsigned short version; // version number of this struct (must be 1)
   unsigned short count;
   unsigned int file;
   unsigned int aux;
   unsigned int next;
 } elf_verneed_header;
 
-typedef struct elf_verneed_entry
+typedef struct elf_verneed_aux
 {
   unsigned int hash;
   unsigned short flags;
   unsigned short other;
   unsigned int name;
   unsigned int next;
-} elf_verneed_entry;
+} elf_verneed_aux;
 
 struct item_name
 {
@@ -833,7 +833,7 @@ static backend_object* elf32_read_file(FILE* f, elf32_header* h)
 	elf32_rela* rela;
 	unsigned short* ver;
 	elf_verneed_header* versymr;
-	elf_verneed_entry* verent;
+	elf_verneed_aux* verent;
 	char* section_strtab = NULL;
 	char *src_file = NULL;
 
@@ -1102,7 +1102,7 @@ dynsym:
 	dsym = (elf32_symbol*)sec_dynsym->data;
 	ver = (unsigned short*)sec_versym->data;
 	versymr = (elf_verneed_header*)sec_versymr->data;
-	verent = (elf_verneed_entry*)(sec_versymr->data + versymr->aux);
+	verent = (elf_verneed_aux*)(sec_versymr->data + versymr->aux);
 	if (!rela || !dsym || !ver || !versymr)
 		goto done;
 
@@ -1191,7 +1191,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    elf64_rela* rela;
    unsigned short* ver;
    elf_verneed_header* versymr;
-   elf_verneed_entry* verent;
+   elf_verneed_aux* verent;
    char* section_strtab = NULL;
 	char *src_file = NULL;
 
