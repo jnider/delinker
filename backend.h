@@ -213,6 +213,7 @@ backend_section* backend_find_section_by_val(backend_object* obj, unsigned long 
 backend_section* backend_get_section_by_index(backend_object* obj, unsigned int index);
 backend_section* backend_get_section_by_name(backend_object* obj, const char* name);
 backend_section* backend_get_section_by_type(backend_object* obj, unsigned int t);
+backend_section* backend_get_section_by_address(backend_object* obj, unsigned long address);
 int backend_get_section_index_by_name(backend_object* obj, const char* name);
 backend_section* backend_get_first_section(backend_object* obj);
 backend_section* backend_get_next_section(backend_object* obj);
