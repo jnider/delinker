@@ -497,6 +497,7 @@ static const char* elf_lookup_section_type(unsigned short type)
    __lookup(type, section_type_lookup);
 }
 
+#ifdef DEBUG
 void dump_elf_header(const char* buf)
 {
    elf64_header *e64 = (elf64_header*)buf;
@@ -539,6 +540,26 @@ void dump_elf64_section(elf64_section* s, const char* strtab)
    printf("Alignment: %i (%lu)\n", 2 << s->addralign, s->addralign);
    printf("Entry size: %lu\n\n", s->entsize);
 }
+
+void dump_elf64_symbol(elf64_symbol *s, const unsigned char *strtab)
+{
+	printf("Name: %s\n", strtab + s->name);
+	printf("Info: %u\n", s->info);
+	printf("Other: %u\n", s->other);
+	printf("Section index: %i\n", s->section_index);
+	printf("Value: 0x%lx\n", s->value);
+	printf("Size: 0x%lx\n", s->value);
+}
+
+void dump_rela(elf64_rela *rela)
+{
+	printf("Addr: 0x%lx\n", rela->addr);
+	printf("Info: 0x%lx\n", rela->info);
+	printf("  Type: 0x%x\n", (uint32_t)ELF64_R_TYPE(rela->info));
+	printf("  Sym: 0x%x\n", (uint32_t)ELF64_R_SYM(rela->info));
+	printf("Addend: 0x%lx\n", rela->addend);
+}
+#endif // DEBUG
 
 const char* elf32_name(void)
 {
