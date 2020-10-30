@@ -203,6 +203,51 @@ typedef enum elf_x86_reloc_type
    R_386_GOTPC
 } elf_x86_reloc_type;
 
+enum dynamic_tag
+{
+	DT_NULL,
+	DT_NEEDED,
+	DT_PLTRELSZ,
+	DT_PLTGOT,
+	DT_HASH,
+	DT_STRTAB,
+	DT_SYMTAB,
+	DT_RELA,
+	DT_RELASZ,
+	DT_RELAENT,
+	DT_STRSZ,	// 10
+	DT_SYMENT,
+	DT_INIT,
+	DT_FINI,
+	DT_SONAME,
+	DT_RPATH,
+	DT_SYMBOLIC,
+	DT_REL,
+	DT_RELSZ,
+	DT_RELENT,
+	DT_PLTREL, 	// 20
+	DT_DEBUG,
+	DT_TEXTREL,
+	DT_JMPREL,
+	DT_BINDNOW,
+	DT_INIT_ARRAY,
+	DT_FINI_ARRAY,
+	DT_INIT_ARRAYSZ,
+	DT_FINI_ARRAYSZ,
+	DT_RUNPATH,
+	DT_FLAGS,	// 30
+	DT_ENCODING,
+	DT_PREINIT_ARRAY,
+	DT_PREINIT_ARRAYSZ,
+	DT_MAXPOSTARGS,
+	DT_LOOS=0x60000000,
+	DT_LOPROC=0x70000000,
+	DT_VERDEF=0x6ffffffc,
+	DT_VERDEFNUM,
+	DT_VERNEED,
+	DT_VERNEEDNUM,
+};
+
 typedef struct elf32_header
 {
    char magic[4];
@@ -336,6 +381,16 @@ struct item_name
    unsigned short id;
    char name[31+1];
 };
+
+typedef struct elf64_dyn
+{
+	unsigned long d_tag;
+	union
+	{
+		unsigned long d_val;
+		unsigned long d_ptr;
+	};
+} elf64_dyn;
 
 static const struct item_name machine_lookup[] = 
 {
