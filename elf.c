@@ -36,11 +36,11 @@
 //#define ELF_SYM_SCOPE(_x) ((_x>>4) & 0xF) // upper 4 bits from the info field
 
 #define ELF32_R_SYM(_x) (_x>>8)
-#define ELF32_R_TYPE(_x) (_x & 0xFF)
+#define ELF32_R_TYPE(_x) (unsigned int)(_x & 0xFF)
 #define ELF32_R_INFO(_s, _t) (unsigned int)((_s) << 8 | (_t && 0xFF))
 
-#define ELF64_R_SYM(_x) (_x>>32)
-#define ELF64_R_TYPE(_x) (_x & 0xFFFFFFFFL)
+#define ELF64_R_SYM(_x) (unsigned int)(_x>>32)
+#define ELF64_R_TYPE(_x) (unsigned int)(_x & 0xFFFFFFFFL)
 #define ELF64_R_INFO(_x, _t) (unsigned long)((unsigned long)(_x) << 32 | _t & ELF64_R_TYPE(_t))
 
 #define IS_NULL_SYMBOL(_x) (\
@@ -553,8 +553,8 @@ void dump_rela(elf64_rela *rela)
 {
 	printf("Addr: 0x%lx\n", rela->addr);
 	printf("Info: 0x%lx\n", rela->info);
-	printf("  Type: 0x%x\n", (uint32_t)ELF64_R_TYPE(rela->info));
-	printf("  Sym: 0x%x\n", (uint32_t)ELF64_R_SYM(rela->info));
+	printf("  Type: 0x%x\n", ELF64_R_TYPE(rela->info));
+	printf("  Sym: 0x%x\n", ELF64_R_SYM(rela->info));
 	printf("Addend: 0x%lx\n", rela->addend);
 }
 #endif // DEBUG
