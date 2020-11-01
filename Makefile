@@ -9,6 +9,10 @@ LIBRARY_PATH = -Lcapstone -Lnucleus
 
 CPPFLAGS = -O2
 
+ifeq ($(DEBUG), 1)
+CPPFLAGS+=-DDEBUG
+endif
+
 .PRECIOUS: *.o
 
 .PHONY: tags
