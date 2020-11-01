@@ -95,6 +95,26 @@ const char* backend_get_next_target(void)
 	return NULL;
 }
 
+const char* backend_symbol_type_to_str(backend_symbol_type t)
+{
+	switch(t)
+	{
+	case SYMBOL_TYPE_NONE:
+		return "none";
+	case SYMBOL_TYPE_FILE:
+		return "file";
+	case SYMBOL_TYPE_SECTION:
+		return "section";
+	case SYMBOL_TYPE_FUNCTION:
+		return "function";
+	case SYMBOL_TYPE_OBJECT:
+		return "object";
+	default:
+		return "Unknown";
+	}
+	return "Unknown";
+}
+
 backend_object* backend_create(void)
 {
    backend_object* obj = (backend_object*)calloc(1, sizeof(backend_object));

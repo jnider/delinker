@@ -170,6 +170,7 @@ void backend_register(backend_ops* be); /* register specific backend implementat
 backend_type backend_lookup_target(const char* name); /* given a string, find a backend that understands the type and convert to a known value to later be used with backend_set_type() */
 const char* backend_get_first_target(void);
 const char* backend_get_next_target(void);
+const char* backend_symbol_type_to_str(backend_symbol_type t); /* output the name of the type as a string */
 
 // general
 backend_object* backend_create(void); /* the constructor - make an empty backend object */
