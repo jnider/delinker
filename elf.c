@@ -941,9 +941,9 @@ static backend_object* elf32_read_file(FILE* f, elf32_header* h)
 			// set flags for known sections by name
 			backend_section_type t;
 			if (strcmp(name, ".text") == 0)
-				flags = SECTION_FLAG_CODE;
+				flags = SECTION_FLAG_EXECUTE;
 			else if (strcmp(name, ".init") == 0)
-				flags = SECTION_FLAG_CODE;
+				flags = SECTION_FLAG_EXECUTE;
 			else if (strcmp(name, ".data") == 0)
 				flags = SECTION_FLAG_INIT_DATA;
 			else if (strcmp(name, ".rodata") == 0)
@@ -953,7 +953,7 @@ static backend_object* elf32_read_file(FILE* f, elf32_header* h)
 			else
 			{
 				if (in_sec.flags & SHF_EXECINSTR)
-					flags = SECTION_FLAG_CODE;
+					flags = SECTION_FLAG_EXECUTE;
 				if (in_sec.flags & SHF_ALLOC && !(in_sec.flags & SHF_EXECINSTR) && (!in_sec.flags & SHF_WRITE))
 					flags = SECTION_FLAG_INIT_DATA;
 				if (in_sec.flags & SHF_ALLOC && !(in_sec.flags & SHF_EXECINSTR)) // not exactly accurate - better to set these flags according to section name
@@ -1304,9 +1304,9 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
          // set flags for known sections by name
 			backend_section_type t;
          if (strcmp(name, ".text") == 0)
-            flags = SECTION_FLAG_CODE;
+            flags = SECTION_FLAG_EXECUTE;
          else if (strcmp(name, ".init") == 0)
-            flags = SECTION_FLAG_CODE;
+            flags = SECTION_FLAG_EXECUTE;
          else if (strcmp(name, ".data") == 0)
             flags = SECTION_FLAG_INIT_DATA;
          else if (strcmp(name, ".rodata") == 0)
@@ -1315,11 +1315,11 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
             flags = SECTION_FLAG_UNINIT_DATA;
          else
          {
-            if (in_sec.flags & SHF_EXECINSTR)
-               flags = SECTION_FLAG_CODE;
-            if (in_sec.flags & SHF_ALLOC && !(in_sec.flags & SHF_EXECINSTR) && (!in_sec.flags & SHF_WRITE))
+            if (in_sec.flags & (1<<SHF_EXECINSTR))
+               flags = SECTION_FLAG_EXECUTE;
+            if (in_sec.flags & (1<<SHF_ALLOC) && !(in_sec.flags & (1<<SHF_EXECINSTR)) && (!in_sec.flags & (1<<SHF_WRITE)))
                flags = SECTION_FLAG_INIT_DATA;
-            if (in_sec.flags & SHF_ALLOC && !(in_sec.flags & SHF_EXECINSTR)) // not exactly accurate - better to set these flags according to section name
+            if (!(in_sec.flags & SHF_EXECINSTR)) // not exactly accurate - better to set these flags according to section name
                flags = SECTION_FLAG_UNINIT_DATA;
          }
 

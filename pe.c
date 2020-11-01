@@ -735,7 +735,7 @@ static backend_object* pe_read_file(const char* filename)
       // convert the flags
       unsigned int flags=0;
       if (secs[i].flags & SCN_CNT_CODE)
-         flags |= SECTION_FLAG_CODE;
+         flags |= SECTION_FLAG_EXECUTE;
       if (secs[i].flags & SCN_CNT_INIT_DATA)
          flags |= SECTION_FLAG_INIT_DATA;
       if (secs[i].flags & SCN_CNT_UNINIT_DATA)
@@ -1040,7 +1040,7 @@ static int coff_write_file(backend_object* obj, const char* filename)
       sh.flags = (sec->alignment & SCN_ALIGN) << SCN_SHIFT_ALIGN;
 
       // convert the flags
-      if (sec->flags & SECTION_FLAG_CODE)
+      if (sec->flags & SECTION_FLAG_EXECUTE)
          sh.flags |= SCN_CNT_CODE | SCN_MEM_EXECUTE | SCN_MEM_READ;
       if (sec->flags & SECTION_FLAG_INIT_DATA)
          sh.flags |= SCN_CNT_INIT_DATA |SCN_MEM_READ | SCN_MEM_WRITE;
@@ -1181,7 +1181,7 @@ static int pe32_write_file(backend_object* obj, const char* filename)
       sh.flags = (sec->alignment & SCN_ALIGN) << SCN_SHIFT_ALIGN;
 
       // convert the flags
-      if (sec->flags & SECTION_FLAG_CODE)
+      if (sec->flags & SECTION_FLAG_EXECUTE)
          sh.flags |= SCN_CNT_CODE | SCN_MEM_EXECUTE | SCN_MEM_READ;
       if (sec->flags & SECTION_FLAG_INIT_DATA)
          sh.flags |= SCN_CNT_INIT_DATA |SCN_MEM_READ | SCN_MEM_WRITE;

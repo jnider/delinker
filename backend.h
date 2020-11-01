@@ -7,7 +7,6 @@ public functions for talking to backends */
 
 #include "ll.h"
 
-#define SECTION_FLAG_CODE 			(1<<SECTION_FLAG_SHIFT_CODE)
 #define SECTION_FLAG_INIT_DATA	(1<<SECTION_FLAG_SHIFT_INIT_DATA)
 #define SECTION_FLAG_UNINIT_DATA	(1<<SECTION_FLAG_SHIFT_UNINIT_DATA)
 #define SECTION_FLAG_COMMENTS		(1<<SECTION_FLAG_SHIFT_COMMENTS)
@@ -50,7 +49,6 @@ typedef enum backend_symbol_type
 
 typedef enum backend_section_flag
 {
-	SECTION_FLAG_SHIFT_CODE,
 	SECTION_FLAG_SHIFT_INIT_DATA,
 	SECTION_FLAG_SHIFT_UNINIT_DATA,
 	SECTION_FLAG_SHIFT_COMMENTS,
