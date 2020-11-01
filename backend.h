@@ -201,7 +201,7 @@ unsigned int backend_get_symbol_index(backend_object* obj, backend_symbol* s); /
 backend_symbol* backend_split_symbol(backend_object* obj, backend_symbol *sym, const char* name, unsigned long val, backend_symbol_type type, unsigned int flags);
 int backend_remove_symbol_by_name(backend_object* obj, const char* name);
 int backend_sort_symbols(backend_object* obj, backend_cmpfunc cmp);
-void backend_set_source_file(backend_symbol *s, char *source_filename);
+void backend_set_source_file(backend_symbol *s, const char *source_filename);
 
 // sections
 unsigned int backend_section_count(backend_object* obj);

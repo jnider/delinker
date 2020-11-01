@@ -492,7 +492,7 @@ int backend_sort_symbols(backend_object* obj, backend_cmpfunc cmp)
 	return 0;
 }
 
-void backend_set_source_file(backend_symbol *s, char *filename)
+void backend_set_source_file(backend_symbol *s, const char *filename)
 {
 	if (!s || !filename)
 		return;
