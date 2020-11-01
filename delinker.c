@@ -122,7 +122,7 @@ static int check_function_sequence(backend_object* obj)
 	return 0;
 }
 
-static int reconstruct_symbols_x86_64(csh cs_dis, cs_insn *cs_ins, backend_object *obj, backend_section *sec_text)
+static int reconstruct_symbols_x86_64(csh cs_dis, cs_insn *cs_ins, backend_object *obj, backend_section *sec_text, const char *src_name)
 {
 	uint64_t pc_addr;
 	const uint8_t *pc;
@@ -142,7 +142,8 @@ static int reconstruct_symbols_x86_64(csh cs_dis, cs_insn *cs_ins, backend_objec
 			if (prev_addr)
 			{
 				sprintf(name, "fn%06lX", prev_addr);
-				backend_add_symbol(obj, name, prev_addr, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
+				backend_symbol *s = backend_add_symbol(obj, name, prev_addr, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
+				backend_set_source_file(s, src_name);
 			}
 
 			DEBUG_PRINT("Starting symbol @ 0x%lx\n", cs_ins->address);
@@ -168,6 +169,7 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 	const uint8_t *pc;
 	size_t n;
 	unsigned long prev_addr;
+	const char fake_src_name[] = "source.c";
 
 	printf("reconstructing symbols from text section\n");
    /* find the text section */
@@ -176,7 +178,7 @@ static int reconstruct_symbols(backend_object* obj, int padding)
       return -ERR_NO_TEXT_SECTION;
 
 	// add a fake symbol for the filename
-	backend_add_symbol(obj, "source.c", 0, SYMBOL_TYPE_FILE, 0, 0, sec_text);
+	backend_add_symbol(obj, fake_src_name, 0, SYMBOL_TYPE_FILE, 0, 0, sec_text);
 
 	unsigned int start_count = backend_symbol_count(obj);
 	DEBUG_PRINT("Starting with %u symbols\n", start_count);
@@ -216,7 +218,7 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 	}
 
 	if (t == OBJECT_TYPE_ELF64 && arch == CS_ARCH_X86)
-		reconstruct_symbols_x86_64(cs_dis, cs_ins, obj, sec_text);
+		reconstruct_symbols_x86_64(cs_dis, cs_ins, obj, sec_text, fake_src_name);
 	else
 	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
 	{
@@ -1279,14 +1281,14 @@ unlink_file(const char* input_filename, backend_type output_target)
 		DEBUG_PRINT("Outputting to original .o files\n");
 		while (sym)
 		{
-			DEBUG_PRINT("Processing %s type=%s\n", sym->name, backend_symbol_type_to_str(sym->type));
-			if (ignore_symbol(sym))
+			DEBUG_PRINT("Processing %s type=%s size=%lu\n", sym->name, backend_symbol_type_to_str(sym->type), sym->size);
+			if (ignore_symbol(sym) || !sym->src)
 			{
 				DEBUG_PRINT("Ignoring %s\n", sym->name);
 				goto skip_ext;
 			}
 
-			if (sym->src && (sym->type == SYMBOL_TYPE_FUNCTION || sym->type == SYMBOL_TYPE_OBJECT))
+			if (sym->type == SYMBOL_TYPE_FUNCTION || sym->type == SYMBOL_TYPE_OBJECT)
 			{
 				DEBUG_PRINT("Getting output object for symbol %s\n", sym->name);
 				oo = get_output_object(oo_list, sym->src, output_target);
