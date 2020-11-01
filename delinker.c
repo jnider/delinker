@@ -180,6 +180,21 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 
 	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
 	{
+		// In x86_64, any ENDBR64 instruction by definition is the target of a branch, and should have a symbol associated with it
+		if (cs_ins->id == X86_INS_ENDBR64)
+		{
+			// if we are still in the middle of a function but found another jump target, end the previous symbol
+			if (!eof)
+			{
+				sprintf(name, "fn%06lX", prev_addr);
+				backend_add_symbol(obj, name, prev_addr, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
+			}
+
+			DEBUG_PRINT("Starting symbol @ 0x%lx\n", cs_ins->address);
+			prev_addr = cs_ins->address;
+			eof = 0;
+		}
+
 		// did we hit the official end of the function?
 		if (cs_ins->id == X86_INS_IRET || cs_ins->id == X86_INS_JMP)
 		{
@@ -188,7 +203,10 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 
 			// ignore any extraneous bytes after the 'ret' instruction
 			if (!padding)
-				backend_add_symbol(obj, name, cs_ins->address, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
+			{
+				sprintf(name, "fn%06lX", prev_addr);
+				backend_add_symbol(obj, name, prev_addr, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
+			}
 			continue;
 		}
 
@@ -205,12 +223,21 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 				//printf("Start: 0x%lx: %s\n", cs_ins->address, cs_ins->mnemonic);
 
 				if (padding)
+				{
+					sprintf(name, "fn%06lX", prev_addr);
 					backend_add_symbol(obj, name, prev_addr, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
+				}
 
-				sprintf(name, "fn%06lX", cs_ins->address);
 				prev_addr = cs_ins->address;
 			}
 		}
+	}
+
+	// if we hit the end of the section add the last symbol
+	if (eof && padding)
+	{
+		sprintf(name, "fn%06lX", prev_addr);
+		backend_add_symbol(obj, name, prev_addr, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
 	}
 
 	// If we have reconstructed symbols and we want to be able to link again later, the linker is going to
@@ -226,9 +253,10 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 	else
 	{
 		printf("No symbol for entry point @ 0x%lx - the recovery is not very accurate\n", backend_get_entry_point(obj));
-		bs = backend_find_nearest_symbol(obj, backend_get_entry_point(obj));
-		printf("%s @ 0x%lx is the closest - splitting\n", bs->name, bs->val);
-      backend_split_symbol(obj, bs, SYMBOL_NAME_MAIN, backend_get_entry_point(obj), SYMBOL_TYPE_FUNCTION, 0);
+		//bs = backend_find_nearest_symbol(obj, backend_get_entry_point(obj));
+		//printf("%s @ 0x%lx is the closest - splitting\n", bs->name, bs->val);
+		// This crashes sometimes - and is probably not a good idea anyway
+      //backend_split_symbol(obj, bs, SYMBOL_NAME_MAIN, backend_get_entry_point(obj), SYMBOL_TYPE_FUNCTION, 0);
 	}
 
 	printf("%u symbols after reconstruction\n", backend_symbol_count(obj) - start_count);
