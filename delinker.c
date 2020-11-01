@@ -403,51 +403,36 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 	}
 
 	// Check to see if this is a known symbol
-	printf("Offset @ 0x%x: looking for symbol @ 0x%x\n", offset, val);
+	DEBUG_PRINT("[0x%x]: looking up symbol @ 0x%x - ", offset, val);
 	bs = backend_find_symbol_by_val(obj, val);
 	if (bs)
 	{
 		// add a relocation
-		printf("   Creating (known) relocation to %s @ 0x%x\n", bs->name, offset);
+		DEBUG_PRINT("   Creating (known) relocation to %s @ 0x%x\n", bs->name, offset);
 		return backend_add_relocation(obj, offset, t, -4, bs);
 	}
 	else
 	{
-		//printf("No known symbol for 0x%x but it is in section %s\n", val, sec->name);
+		printf("No known symbol for 0x%x but it is in section %s %u\n", val, sec->name, sec->type);
 
-		// JKN: we should not be relying on the section name. The code section is
-		// called .text by convention, but not mandatory. In fact, there may be more than one code section
-		if (strcmp(sec->name, ".text") == 0)
+		// symbol must be in a program section (GOT, PLT, data, code)
+		if (sec->type != SECTION_TYPE_PROG)
 		{
-			printf("  Should have a symbol in .text - bad address or bad instruction??\n");
-			return -3;
+			printf("Symbol is not in a program section - no good\n");
+			return -5;
 		}
-		else if (strcmp(sec->name, ".plt") == 0)
+
+		// Maybe it has an import symbol
+		DEBUG_PRINT("Checking for import symbol @ %x\n", val);
+		bs = backend_find_import_by_address(obj, val);
+		if (bs)
 		{
-			// Maybe it has an import symbol
-			//printf("Checking for import symbol\n");
-			bs = backend_find_import_by_address(obj, val);
+			printf("  Found import symbol %s (flags=%u)\n", bs->name, bs->flags);
+			bs = backend_find_symbol_by_name(obj, bs->name);
 			if (bs)
 			{
-				//printf("  Found import symbol %s (flags=%u)\n", bs->name, bs->flags);
-				bs = backend_find_symbol_by_name(obj, bs->name);
-				if (bs)
-				{
-					//printf("  Creating PC_REL relocation to %s @offset 0x%x (flags=%u)\n", bs->name, offset, bs->flags);
-					printf("   Creating (PLT) relocation to %s @ 0x%x\n", bs->name, offset);
-					return backend_add_relocation(obj, offset, RELOC_TYPE_PLT, -4, bs);
-				}
-			}
-			else
-			{
-				printf("  Missing import symbol - looks bad.\n");
-				backend_symbol *is = backend_get_first_import(obj);
-				while (is)
-				{
-					printf("  IMPORT: %s @ %lx\n", is->name, is->val);
-					is = backend_get_next_import(obj);
-				}
-				return -5;
+				printf("   Creating (PLT) relocation to %s @ 0x%x\n", bs->name, offset);
+				return backend_add_relocation(obj, offset, RELOC_TYPE_PLT, -4, bs);
 			}
 		}
 		else if (strcmp(sec->name, ".plt.got") == 0)
@@ -455,9 +440,12 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 			printf("Not sure what to do with .plt.got symbols. They are dynamic but don't have an import??\n");
 			return -4;
 		}
+		else
+		{
+			printf("Can't find import symbol!\n");
+			return -6;
+		}
 
-		//printf("Checking for data symbol\n");
-		// make sure this is a data section
 		if ((sec->flags & SECTION_FLAG_INIT_DATA) || (sec->flags & SECTION_FLAG_UNINIT_DATA))
 		{
 			// get the section symbol related to this section
@@ -494,7 +482,7 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 		{
 			// This might be a debug instruction, or just a 'mov' instruction that
 			// shouldn't have a relocation at all.
-			//printf("Ignoring instruction - no reloc\n");
+			printf("Ignoring instruction - no reloc\n");
 		}
 	}
 
@@ -701,13 +689,13 @@ static void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, 
 // Iterate through all the code to find instructions that reference absolute memory. These addresses
 // are likely to be variables in the data segment or addresses of called functions. For each one of
 // these, we want to replace the absolute value with 0, and create a relocation in its place which
-// points to a symbol. Some relocations may already exist if the symbol was dynamically linked
-// (.so, .dll, etc.). In that case, the relocation should have already been updated to point to the
-// correct symbol, and we may use it as is. For statically linked functions, we must create a new
-// relocation and point it to the correct symbol.
+// points to a symbol. Any existing relocations for dynamically linked symbols are not valid, because
+// they only point from the PLT to the GOT (so they are thrown away). New symbols have been added to
+// the PLT to represent the target address used in 'call' instructions.
+// For each instruction, we must create a new relocation and point it to the correct symbol.
 static int build_relocations(backend_object* obj)
 {
-	backend_section* sec_text;
+	backend_section* curr_sec;
 	backend_section* sec;
 	csh cs_dis;
 	cs_insn *cs_ins;
@@ -729,13 +717,20 @@ static int build_relocations(backend_object* obj)
 		return -ERR_BAD_FORMAT;
 
    /* find the text sections */
-   sec_text = backend_get_section_by_name(obj, ".text"); // do this by flag, not name
-   if (!sec_text)
-      return -ERR_NO_TEXT_SECTION;
-	
-	while (sec_text)
+	//curr_sec = backend_get_first_section(obj);
+	curr_sec = backend_get_first_section_by_type(obj, SECTION_TYPE_PROG);
+	while (curr_sec)
 	{
-		printf("Building relocations for section %s\n", sec_text->name);
+		// only process executable sections that don't have an entry size
+		if (!(curr_sec->flags & SECTION_FLAG_EXECUTE) ||
+			curr_sec->entry_size > 0)
+		{
+			DEBUG_PRINT("Skipping section %s flags 0x%x entry size=%u\n", curr_sec->name, curr_sec->flags, curr_sec->entry_size);
+			curr_sec = backend_get_next_section(obj);
+			continue;
+		}
+
+		printf("Building relocations for section %s\n", curr_sec->name);
 
 		// The architecture selection is inside the while loop because it
 		// should read the arch type from the section rather than the object.
@@ -775,14 +770,13 @@ static int build_relocations(backend_object* obj)
 		if(!cs_ins)
 			return -ERR_NO_MEMORY;
 
-		rfn(obj, sec_text, cs_dis, cs_ins);
+		rfn(obj, curr_sec, cs_dis, cs_ins);
 
 		cs_free(cs_ins, 1);
 		cs_close(&cs_dis);
 
 		// get the next .text section
-   	//sec_text = backend_get_next_section_by_flag(obj, ".text"); // do this by flag, not name
-		sec_text = NULL;
+		curr_sec = backend_get_next_section(obj);
 	}
 
   	if (config.verbose)
@@ -1206,15 +1200,15 @@ unlink_file(const char* input_filename, backend_type output_target)
 		return -ERR_BAD_FORMAT;
 
 	// check for symbols, and rebuild if necessary
-	if (backend_symbol_count(obj) == 0 && config.reconstruct_symbols == 0)
+	if (backend_symbol_count(obj) == 0 && backend_import_symbol_count(obj) == 0 && config.reconstruct_symbols == 0)
 		return -ERR_NO_SYMS;
 	else if (config.reconstruct_symbols)
 	{
       if (config.verbose)
          fprintf(stderr, "Reconstructing symbols with built-in function detector\n");
 
-		//reconstruct_symbols(obj, 1);
-		nucleus_reconstruct_symbols(obj);
+		reconstruct_symbols(obj, 1);
+		//nucleus_reconstruct_symbols(obj);
 		if (backend_symbol_count(obj) == 0)
 			return -ERR_NO_SYMS_AFTER_RECONSTRUCT;
 	}
@@ -1292,7 +1286,7 @@ unlink_file(const char* input_filename, backend_type output_target)
 				goto skip_ext;
 			}
 
-			if (sym->type == SYMBOL_TYPE_FUNCTION || sym->type == SYMBOL_TYPE_OBJECT)
+			if (sym->src && (sym->type == SYMBOL_TYPE_FUNCTION || sym->type == SYMBOL_TYPE_OBJECT))
 			{
 				DEBUG_PRINT("Getting output object for symbol %s\n", sym->name);
 				oo = get_output_object(oo_list, sym->src, output_target);
