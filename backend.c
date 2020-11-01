@@ -906,3 +906,15 @@ backend_symbol* backend_get_next_import(backend_object* obj)
 		return NULL;
 	return (backend_symbol*)obj->iter_import_symbol->val;
 }
+
+unsigned int backend_import_symbol_count(backend_object* obj)
+{
+	unsigned int count = 0;
+	backend_symbol *s = backend_get_first_import(obj);
+	while (s)
+	{
+		count++;
+		s = backend_get_next_import(obj);
+	}
+	return count;
+}
