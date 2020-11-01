@@ -122,6 +122,43 @@ static int check_function_sequence(backend_object* obj)
 	return 0;
 }
 
+static int reconstruct_symbols_x86_64(csh cs_dis, cs_insn *cs_ins, backend_object *obj, backend_section *sec_text)
+{
+	uint64_t pc_addr;
+	const uint8_t *pc;
+	size_t length;
+	unsigned long prev_addr = 0;
+	char name[24];
+
+	DEBUG_PRINT("Reconstructing x86_64 symbols\n");
+	pc = sec_text->data;
+	length = sec_text->size;
+	pc_addr = sec_text->address;
+	while(cs_disasm_iter(cs_dis, &pc, &length, &pc_addr, cs_ins))
+	{
+		// In x86_64, any ENDBR64 instruction by definition is the target of a branch, and should have a symbol associated with it
+		if (cs_ins->id == X86_INS_ENDBR64)
+		{
+			if (prev_addr)
+			{
+				sprintf(name, "fn%06lX", prev_addr);
+				backend_add_symbol(obj, name, prev_addr, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
+			}
+
+			DEBUG_PRINT("Starting symbol @ 0x%lx\n", cs_ins->address);
+			prev_addr = cs_ins->address;
+		}
+	}
+
+	if (prev_addr)
+	{
+		sprintf(name, "fn%06lX", prev_addr);
+		backend_add_symbol(obj, name, prev_addr, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
+	}
+
+	return 0;
+}
+
 static int reconstruct_symbols(backend_object* obj, int padding)
 {
 	csh cs_dis;
@@ -142,7 +179,7 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 	backend_add_symbol(obj, "source.c", 0, SYMBOL_TYPE_FILE, 0, 0, sec_text);
 
 	unsigned int start_count = backend_symbol_count(obj);
-	printf("Starting with %u symbols\n", start_count);
+	DEBUG_PRINT("Starting with %u symbols\n", start_count);
 
 	// decode (disassemble) the executable section, and assume that any instruction following a 'ret'
    // is the beginning of a new function. Create a symbol entry at that address, and add it to the list.
@@ -178,23 +215,11 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 		return -1;
 	}
 
+	if (t == OBJECT_TYPE_ELF64 && arch == CS_ARCH_X86)
+		reconstruct_symbols_x86_64(cs_dis, cs_ins, obj, sec_text);
+	else
 	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
 	{
-		// In x86_64, any ENDBR64 instruction by definition is the target of a branch, and should have a symbol associated with it
-		if (cs_ins->id == X86_INS_ENDBR64)
-		{
-			// if we are still in the middle of a function but found another jump target, end the previous symbol
-			if (!eof)
-			{
-				sprintf(name, "fn%06lX", prev_addr);
-				backend_add_symbol(obj, name, prev_addr, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
-			}
-
-			DEBUG_PRINT("Starting symbol @ 0x%lx\n", cs_ins->address);
-			prev_addr = cs_ins->address;
-			eof = 0;
-		}
-
 		// did we hit the official end of the function?
 		if (cs_ins->id == X86_INS_IRET || cs_ins->id == X86_INS_JMP)
 		{
@@ -246,7 +271,7 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 	backend_symbol *bs = backend_find_symbol_by_val_type(obj, backend_get_entry_point(obj), SYMBOL_TYPE_FUNCTION);
 	if (bs)
 	{
-		printf("found entry point %s @ 0x%lx - renaming to 'main'\n", bs->name, bs->val);
+		DEBUG_PRINT("found entry point %s @ 0x%lx - renaming to 'main'\n", bs->name, bs->val);
 		free(bs->name);
 		bs->name = strdup(SYMBOL_NAME_MAIN);
 	}
