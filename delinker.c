@@ -14,6 +14,12 @@ and write out a set of unlinked .o files that can be relinked later.*/
 #include "backend.h"
 #include "config.h"
 
+#ifdef DEBUG
+#define DEBUG_PRINT printf
+#else
+#define DEBUG_PRINT //
+#endif
+
 extern int nucleus_reconstruct_symbols(backend_object *obj);
 
 #define DEFAULT_OUTPUT_FILENAME "default.o"
@@ -1223,20 +1229,19 @@ unlink_file(const char* input_filename, backend_type output_target)
 	}
 	else
 	{
-		printf("Outputting to original .o files\n");
+		DEBUG_PRINT("Outputting to original .o files\n");
 		while (sym)
 		{
+			DEBUG_PRINT("Processing %s type=%s\n", sym->name, backend_symbol_type_to_str(sym->type));
 			if (ignore_symbol(sym))
+			{
+				DEBUG_PRINT("Ignoring %s\n", sym->name);
 				goto skip_ext;
+			}
 
 			if (sym->type == SYMBOL_TYPE_FUNCTION || sym->type == SYMBOL_TYPE_OBJECT)
 			{
-				if (!sym->src)
-				{
-					//printf("Skipping external function %s\n", sym->name);
-					goto skip_ext;
-				}
-
+				DEBUG_PRINT("Getting output object for symbol %s\n", sym->name);
 				oo = get_output_object(oo_list, sym->src, output_target);
 
 				if (write_symbol(oo, obj, sym, output_target) < 0)

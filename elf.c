@@ -14,8 +14,6 @@
 
 #pragma pack(1)
 
-#define DEBUG
-
 #ifdef DEBUG
 #define DEBUG_PRINT printf
 #else
@@ -1584,8 +1582,9 @@ static backend_object* elf_read_file(const char* filename)
       goto done;
 	}
    
-   if (config.verbose)
-      dump_elf_header(buff);
+#ifdef DEBUG
+	dump_elf_header(buff);
+#endif
    
    h = (elf64_header*)buff;
 
