@@ -686,62 +686,30 @@ int elf_reloc_addend(elf_x86_64_reloc_type t)
    return 0;
 }
 
-static long decode_plt_entry(elf_machine m, const unsigned char* plt_entry)
+// this should be moved to the backend - it has nothing to do with elf
+static unsigned long decode_plt_entry_x86_64(csh cs_dis, cs_insn *cs_ins, const unsigned char *pc, uint64_t pc_addr, unsigned long entry_size)
 {
-	csh cs_dis;
-	cs_mode cs_mode;
-	cs_arch cs_arch;
-	cs_insn *cs_ins;
-	cs_x86_op *cs_op;
-	const uint8_t *pc;
-	uint64_t pc_addr, offset;
-	size_t n;
-
-   //printf("Looking up at %p\n", plt_entry);
-   switch(m)
-   {
-   case ELF_ISA_X86:
-		cs_mode = CS_MODE_32;
-	   cs_arch = CS_ARCH_X86;
-      break;
-
-   case ELF_ISA_X86_64:
-		cs_mode = CS_MODE_64;
-	   cs_arch = CS_ARCH_X86;
-      break;
-
-   case ELF_ISA_ARM:
-		cs_mode = CS_MODE_32;
-	   cs_arch = CS_ARCH_ARM;
-      break;
-
-   case ELF_ISA_AARCH64:
-		cs_mode = CS_MODE_64;
-	   cs_arch = CS_ARCH_ARM64;
-      break;
-
-   default:
-      return -1;
-   }
-
-	if (cs_open(cs_arch, cs_mode, &cs_dis) != CS_ERR_OK)
-		return -1;
-
-   // decode that entry
-	cs_disasm(cs_dis, plt_entry, 0x10, 0, 0, &cs_ins);
-   if (cs_ins->id != X86_INS_JMP)
-   {
-      printf("PLT instruction is not jump\n");
-      return -1;
-   }
-
-   //printf("%lx: %s\n", plt_addr, ud_lookup_mnemonic(mnem));
-   //printf("OP: %x %p %x\n", op->lval.sdword, plt_entry, bytes);
-   
-   unsigned int plt_addr = *(unsigned int*)&cs_ins->bytes[1];
-
-	cs_close(&cs_dis);
-	return plt_addr;
+	cs_disasm_iter(cs_dis, &pc, &entry_size, &pc_addr, cs_ins);
+	//printf("id: %u %s\n", cs_ins->id, cs_ins->mnemonic);
+	if (cs_ins->id == X86_INS_ENDBR64)
+	{
+		cs_disasm_iter(cs_dis, &pc, &entry_size, &pc_addr, cs_ins);
+		//printf("id: %u %s\n", cs_ins->id, cs_ins->mnemonic);
+		if (cs_ins->id == X86_INS_PUSH)
+		{
+			return 0;
+		}
+		else if (cs_ins->id == X86_INS_JMP)
+		{
+			// extract the target address that should point to the GOT
+			// The jump instruction is actually relative to the PC, so we must add
+			// the current instruction address when looking it up.
+			unsigned long target = *(unsigned int*)&cs_ins->bytes[3];
+			target += pc_addr;
+			return target;
+		}
+	}
+	return 0;
 }
 
 // read the section headers sequentially from the file, looking for a specific section name
