@@ -812,8 +812,8 @@ static backend_object* elf32_read_file(FILE* f, elf32_header* h)
 	backend_section* sec_versym;
 	backend_section* sec_versymr;
 	backend_section* sec_text;
-	backend_section* sec_plt;
 	backend_section* sec_rela;
+	backend_section* sec_relaplt;
 	backend_section* sec_strtab = NULL;
 	elf32_symbol* dsym;
 	elf32_symbol* sym;
@@ -1067,13 +1067,6 @@ dynsym:
 		goto done;
 	}
 
-	sec_plt = backend_get_section_by_name(obj, ".plt");
-	if (!sec_plt)
-	{
-		printf("Warning: can't find PLT section!\n");
-		//goto done;
-	}
-
 	// Create dynamic symbols
 	// Code is linked using addresses in the PLT section. We want to have a symbol at that address
 	// so we can look up by address when disassembling code.
@@ -1204,27 +1197,26 @@ void elf64_add_import_from_rela(backend_object *obj, elf64_rela* rela, backend_s
 
 static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 {
-   backend_arch be_arch;
-   elf64_section in_sec;
-   backend_section* sec_symtab;
-   backend_section* sec_dynsym;
-   backend_section* sec_dynstr;
-   backend_section* sec_versym;
-   backend_section* sec_versymr;
-   backend_section* sec_text;
-   backend_section* sec_plt;
-   backend_section* sec_rela;
+	backend_arch be_arch;
+	elf64_section in_sec;
+	backend_section* sec_symtab;
+	backend_section* sec_dynsym;
+	backend_section* sec_dynstr;
+	backend_section* sec_versymr;
+	backend_section* sec_text;
+	backend_section* sec_dynamic;
+	backend_section* sec_reladyn;
+	backend_section* sec_relaplt;
+	backend_section* sec_got;
 	backend_section* sec_strtab = NULL;
-   elf64_symbol* dsym;
+	backend_section* sec;
    elf64_symbol* sym;
    elf64_rela* rela;
-   unsigned short* ver;
-   elf_verneed_header* versymr;
-   elf_verneed_aux* verent;
-   char* section_strtab = NULL;
+	elf64_dyn *dyn_entry;
+	char* section_strtab = NULL;
 	char *src_file = NULL;
+	backend_symbol* imp;
 
-	printf("elf64_read_file\n");
    backend_object* obj = backend_create();
    if (!obj)
       return 0;
@@ -1290,8 +1282,14 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 
 		// if a section with this name doesn't already exist, add it
       char* name = section_strtab + in_sec.name;
-      if (!backend_get_section_by_name(obj, name))
-      {
+
+		// make sure this section hasn't already been seen
+		if (backend_get_section_by_name(obj, name))
+		{
+			printf("Warning: duplicate section \"%s\" - skipping\n", name);
+		}
+		else
+		{
          unsigned long flags=0;
 			unsigned char* data = NULL;
 
@@ -1364,8 +1362,8 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 		int symbol_flags=0;
 
 		// get the symbol name
-		if (sym->name && sec_strtab)
-			name = (char*)sec_strtab->data + sym->name;
+		name = (char*)sec_strtab->data + sym->name;
+		DEBUG_PRINT("Symbol: %s @ 0x%lx\n", name, sym->value);
 
 		switch (ELF_SYM_TYPE(sym->info))
 		{
@@ -1430,32 +1428,46 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 			backend_set_source_file(s, src_file);
 			//printf("Adding symbol %s to %s\n", name, src_file);
 		}
-
    }
 
 dynsym:
 	// Since we are dealing with dynamic symbols, we will need access to the dynamic
 	// symbol table, dynamic string table and version tables
-   sec_dynsym = backend_get_section_by_name(obj, ".dynsym");
-   if (!sec_dynsym)
+   sec_dynamic = backend_get_section_by_name(obj, ".dynamic");
+   if (!sec_dynamic)
    {
-      printf("Can't find dynamic symbol section (.dynsym)\n");
+      printf("Can't find dynamic section!\n");
       goto done;
    }
 
-   sec_dynstr = backend_get_section_by_name(obj, ".dynstr");
-   if (!sec_dynstr)
-   {
-      printf("Can't find .dynstr\n");
-      goto done;
-   }
+	// Now find the dynamic string table and symbol table
+	dyn_entry = (struct elf64_dyn *)sec_dynamic->data;
+	while (dyn_entry->d_tag != DT_NULL)
+	{
+		switch(dyn_entry->d_tag)
+		{
+		case DT_STRTAB:
+			sec_dynstr = backend_get_section_by_address(obj, dyn_entry->d_ptr);
+			if (!sec_dynstr)
+			{
+				printf("Can't find .dynstr\n");
+				goto done;
+			}
+			printf("Dynamic string table @ 0x%lx (%s)\n", dyn_entry->d_ptr, sec_dynstr->name);
+			break;
 
-   sec_versym = backend_get_section_by_name(obj, ".gnu.version");
-   if (!sec_versym)
-   {
-      printf("Can't find .gnu.version\n");
-      goto done;
-   }
+		case DT_SYMTAB:
+			sec_dynsym = backend_get_section_by_address(obj, dyn_entry->d_ptr);
+			if (!sec_dynsym)
+			{
+				printf("Can't find .dynsym\n");
+				goto done;
+			}
+			printf("Dynamic symbol table @ 0x%lx (%s)\n", dyn_entry->d_ptr, sec_dynsym->name);
+			break;
+		}
+		dyn_entry++;
+	}
 
    sec_versymr = backend_get_section_by_name(obj, ".gnu.version_r");
    if (!sec_versymr)
@@ -1471,84 +1483,181 @@ dynsym:
       goto done;
    }
 
-   sec_plt = backend_get_section_by_name(obj, ".plt");
-   if (!sec_plt)
-   {
-      printf("Warning: can't find PLT section!\n");
-      //goto done;
-   }
-
    // Create dynamic symbols
    // Code is linked using addresses in the PLT section. We want to have a symbol at that address
    // so we can look up by address when disassembling code.
-   sec_rela = backend_get_section_by_name(obj, ".rela.plt");
-   if (!sec_rela)
-   {
-      printf("Can't find PLT reloc section!\n");
-      goto done;
-   }
 
-	// make sure there are dynamic symbol versions
-   rela = (elf64_rela*)sec_rela->data;
-   dsym = (elf64_symbol*)sec_dynsym->data;
-   ver = (unsigned short*)sec_versym->data;
-   versymr = (elf_verneed_header*)sec_versymr->data;
-   verent = (elf_verneed_entry*)(sec_versymr->data + versymr->aux);
-	if (!rela || !dsym || !ver || !versymr)
-		goto done;
+	// find all kinds of interesting facts in the dynamic section
+	dyn_entry = (struct elf64_dyn *)sec_dynamic->data;
+	while (dyn_entry->d_tag != DT_NULL)
+	{
+		switch(dyn_entry->d_tag)
+		{
+		case DT_NEEDED:
+			printf("Need library: %s\n", sec_dynstr->data + dyn_entry->d_val);
+			break;
+
+		case DT_PLTRELSZ:
+			printf("Size of PLT reloc table: %lu\n", dyn_entry->d_val);
+			break;
+
+		case DT_PLTGOT:
+			sec_got = backend_get_section_by_address(obj, dyn_entry->d_ptr);
+			if (!sec_got)
+				goto done;
+			printf("PLT GOT is in: (%s) %u entries\n",
+				sec_got->name, sec_got->size/sec_got->entry_size);
+			break;
+
+		case DT_RELA:
+			sec_reladyn = backend_get_section_by_address(obj, dyn_entry->d_ptr);
+			if (!sec_reladyn)
+				goto done;
+			printf("Where's the RELA table: 0x%lx (%s)\n", dyn_entry->d_ptr,
+				sec_reladyn->name);
+			break;
+
+		case DT_RELASZ:
+			//DEBUG_PRINT("Size of RELA table: %lu\n", dyn_entry->d_val);
+			break;
+
+		case DT_RELAENT:
+			//DEBUG_PRINT("Size of RELA entry: %lu\n", dyn_entry->d_val);
+			break;
+
+		case DT_PLTREL:
+			DEBUG_PRINT("Uses %s table\n", dyn_entry->d_val==DT_REL?"REL":"RELA");
+			break;
+
+		case DT_JMPREL:
+			sec_relaplt = backend_get_section_by_address(obj, dyn_entry->d_ptr);
+			if (!sec_relaplt)
+				goto done;
+			printf("PLT relocations @ 0x%lx (%s)\n", dyn_entry->d_ptr, sec_relaplt->name);
+			break;
+
+		case DT_VERDEF:
+		case DT_VERDEFNUM:
+		case DT_VERNEED:
+		case DT_VERNEEDNUM:
+			break;
+
+		// ignore these
+		case DT_STRTAB:
+		case DT_STRSZ:
+		case DT_SYMTAB:
+		case DT_SYMENT:
+		case DT_INIT:
+		case DT_FINI:
+		case DT_DEBUG:
+		case DT_INIT_ARRAY:
+		case DT_FINI_ARRAY:
+		case DT_INIT_ARRAYSZ:
+		case DT_FINI_ARRAYSZ:
+		case DT_FLAGS:
+		case DT_ENCODING:
+		case DT_PREINIT_ARRAY:
+		case DT_PREINIT_ARRAYSZ:
+		case DT_MAXPOSTARGS:
+			break;
+
+		default:
+			printf("Unknown Dynamic tag: %lu\n", dyn_entry->d_tag);
+		}
+		dyn_entry++;
+	}
+
+	// make sure there are dynamic symbol versions. Each entry in the symbol version table
+	// corresponds to one entry in the dynamic symbol table (in the same order).
+
+	// Make sure our understanding of the RELA format is correct
+	if (sizeof(elf64_rela) != sec_relaplt->entry_size)
+	{
+		printf("Warning: rela struct size (0x%lx) doesn't match reported size (0x%x)!\n",
+			sizeof(elf64_rela), sec_relaplt->entry_size);
+	}
 
 	// Each dynamic symbol has a relocation in .rela.plt
-   for (int i=0; i < sec_rela->size/sec_rela->entry_size; i++)
+	for (rela = (elf64_rela*)sec_relaplt->data; rela < (elf64_rela*)(sec_relaplt->data + sec_relaplt->size); rela++)
    {
-      // we must look up this symbol by index in the ELF dynamic symbol table
-      unsigned long index = ELF64_R_SYM(rela->info);
-
-      //DEBUG_PRINT("Getting dynsym index=%lu\n", index);
-      dsym = (elf64_symbol*)sec_dynsym->data + index;
-      //printf("dynsym @ %p dsym @ %p\n", sec_dynsym->data, dsym);
-      strncpy(sym_name, (char*)sec_dynstr->data + dsym->name, SYMBOL_MAX_LENGTH);
-      if (strlen((char*)sec_dynstr->data + dsym->name) > SYMBOL_MAX_LENGTH)
-      {
-         printf("warning: symbol name %s will be truncated!\n", sym_name);
-         sym_name[SYMBOL_MAX_LENGTH] = 0;
-      }
-      printf("Found dynamic symbol name %s at offset 0x%lx\n", sym_name, rela->addr);
-
-      if (!backend_add_symbol(obj, sym_name, rela->addr, SYMBOL_TYPE_FUNCTION, 0, SYMBOL_FLAG_GLOBAL | SYMBOL_FLAG_EXTERNAL, sec_text))
-			printf("Error adding %s\n", sym_name);
-
-      char* module_name = (char*)sec_dynstr->data + verent->name;
-      if (module_name)
-      {
-			//printf("Looking for module %s\n", module_name);
-         backend_import* mod = backend_find_import_module_by_name(obj, module_name);
-         if (!mod)
-            mod = backend_add_import_module(obj, module_name);
-         if (mod)
-         {
-            backend_section* sec = backend_find_section_by_val(obj, rela->addr);
-				if (sec)
-				{
-					unsigned long plt_addr = *(unsigned long*)(sec->data + (rela->addr - sec->address));
-					unsigned long sym_addr = plt_addr - 6; // why 6?
-					if (!backend_add_import_function(mod, sym_name, sym_addr))
-						printf("Error adding import function %s\n", sym_name);
-				}
-				else
-				{
-					printf("Error finding section for address 0x%lx\n", rela->addr);
-				}
-         }
-			else
-				printf("  No import module\n");
-      }
-		else
-		{
-			printf("  No import module\n");
-		}
-
-      rela++;
+		elf64_add_import_from_rela(obj, rela, sec_dynsym, sec_dynstr, sec_versymr);
    }
+
+	// look at .rela.dyn for any missing symbols
+	printf("Looking at rela.dyn\n");
+	for (rela = (elf64_rela*)sec_reladyn->data; rela < (elf64_rela*)(sec_reladyn->data + sec_reladyn->size); rela++)
+   {
+		if (ELF64_R_TYPE(rela->info) != R_AMD64_RELATIVE)
+		{
+			elf64_add_import_from_rela(obj, rela, sec_dynsym, sec_dynstr, sec_versymr);
+			printf("Found reladyn for 0x%lx (%u)\n", rela->addr, ELF64_R_TYPE(rela->info));
+		}
+	}
+
+	DEBUG_PRINT("Adding missing functions from PLT sections\n");
+	// Add a normal function symbol for every PLT entry that points to an import symbol
+	sec = backend_get_first_section(obj);
+	while (sec)
+	{
+		// we find PLT sections by comparing the first 4 bytes of the name to ".plt" and then checking
+		// various flags to increase confidence. I don't know if this is a reliable heuristic or not,
+		// but I can't think of an alternative, and it seems to work
+		if (memcmp(sec->name, ".plt", 4) == 0 &&
+			sec->type == SECTION_TYPE_PROG &&
+			sec->flags & (SECTION_FLAG_EXECUTE))
+		{
+			//DEBUG_PRINT("Found PLT section %s\n", sec->name);
+
+			// iterate over all entries in the PLT
+			csh cs_dis;
+			cs_insn *cs_ins;
+			cs_x86_op *cs_op;
+			const uint8_t *pc;
+			uint64_t offset;
+			uint64_t pc_addr;
+			size_t n;
+			unsigned int entry_size = sec->entry_size;
+
+			if (cs_open(CS_ARCH_X86, CS_MODE_64, &cs_dis) != CS_ERR_OK)
+				goto done;
+			cs_ins = cs_malloc(cs_dis);
+
+			// There are a few kinds of entries in the PLT. The 'main' PLT is not interesting for us;
+			// call instructions use the 'other' PLTs. Since we can't (yet) differentiate, at the top
+			// level, we must parse all PLT sections. In x86_64, all entries start with an ENDBR64
+			// instruction, which can be used by the processor to validate the jump target. Older code
+			// didn't have this feature. The next instruction is how we can differentiate between the
+			// entry types. The 'main' PLT entries have a 'push' instruction, while 'other' PLT entries
+			// have a jmp instruction into the GOT. We want to create a symbol at this PLT entry because
+			// call instructions point to these entries. But to get the symbol name, we must use the
+			// GOT entry that the PLT entry is pointing at.
+			for (unsigned char *plt_entry = sec->data; plt_entry < (sec->data + sec->size); plt_entry += entry_size)
+			{
+				// decode the entry
+				pc_addr = sec->address + (plt_entry - sec->data);
+				pc = plt_entry;
+				unsigned long target = decode_plt_entry_x86_64(cs_dis, cs_ins, pc, pc_addr, entry_size);
+				if (target)
+				{
+					backend_symbol* import = backend_find_import_by_address(obj, target);
+					if (import)
+					{
+						DEBUG_PRINT("Adding symbol %s @ 0x%lx size=%u\n", import->name, pc_addr - 0xb, entry_size);
+						backend_symbol *pltsym = backend_add_symbol(obj, import->name, pc_addr - 0xb,
+							SYMBOL_TYPE_FUNCTION, entry_size, 0, sec_text);
+						if (!pltsym)
+							printf("Error adding symbol\n");
+					}
+					else
+					{
+						printf("Can't find an import symbol for address 0x%lx\n", target);
+					}
+				}
+			}
+			cs_close(&cs_dis);
+		}
+		sec = backend_get_next_section(obj);
+	}
 
 done:
    free(section_strtab);
