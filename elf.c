@@ -1159,9 +1159,51 @@ error:
 	return obj;
 }
 
-static backend_object* elf64_read_file(FILE* f, elf64_header* h)
+void elf64_add_import_from_rela(backend_object *obj, elf64_rela* rela, backend_section *sec_symtab, backend_section *sec_strtab, backend_section *sec_versymr)
 {
    char sym_name[SYMBOL_MAX_LENGTH+1];
+   elf64_symbol* dsym;
+   elf_verneed_aux* verent;
+   elf_verneed_header* versymr;
+
+   versymr = (elf_verneed_header*)sec_versymr->data;
+   verent = (elf_verneed_aux*)(sec_versymr->data + versymr->aux);
+
+	// look up this symbol by index in the ELF dynamic symbol table to get the name
+	unsigned int index = ELF64_R_SYM(rela->info);
+	dsym = (elf64_symbol*)sec_symtab->data + index;
+	strncpy(sym_name, (char*)sec_strtab->data + dsym->name, SYMBOL_MAX_LENGTH);
+	if (strlen((char*)sec_symtab->data + dsym->name) > SYMBOL_MAX_LENGTH)
+	{
+		printf("Warning: symbol name %s will be truncated!\n", sym_name);
+		sym_name[SYMBOL_MAX_LENGTH] = 0;
+	}
+	DEBUG_PRINT("Found dynamic symbol name %s at offset 0x%lx info: 0x%lx\n", sym_name, rela->addr, rela->info);
+
+	char* module_name = (char*)sec_strtab->data + verent->name;
+	if (module_name)
+	{
+		backend_import* mod = backend_find_import_module_by_name(obj, module_name);
+		if (!mod)
+			mod = backend_add_import_module(obj, module_name);
+
+		if (mod)
+		{
+			printf("Adding import function %s@%s\n", sym_name, module_name);
+			if (!backend_add_import_function(mod, sym_name, rela->addr))
+				printf("Error adding import function %s@%s\n", sym_name, module_name);
+		}
+		else
+			printf("  Error adding import module %s\n", module_name);
+	}
+	else
+	{
+		printf("  No import module\n");
+	}
+}
+
+static backend_object* elf64_read_file(FILE* f, elf64_header* h)
+{
    backend_arch be_arch;
    elf64_section in_sec;
    backend_section* sec_symtab;
