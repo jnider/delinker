@@ -218,6 +218,7 @@ backend_section* backend_get_first_section(backend_object* obj);
 backend_section* backend_get_next_section(backend_object* obj);
 backend_section* backend_get_first_section_by_type(backend_object* obj, backend_section_type t);
 backend_section* backend_get_next_section_by_type(backend_object* obj, backend_section_type t);
+backend_symbol* backend_get_section_symbol(backend_object* obj, backend_section* sec);
 
 // relocations
 unsigned int backend_relocation_count(backend_object* obj);

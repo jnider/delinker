@@ -199,7 +199,7 @@ static void dump_symbol_table(backend_object* obj)
    for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
 	{
 		backend_symbol *bs = (backend_symbol*)iter->val;
-		printf("** %s 0x%lx\n", bs->name, bs->val);
+		//printf("** %s 0x%lx\n", bs->name, bs->val);
 	}
 }
 
@@ -298,10 +298,16 @@ backend_symbol* backend_find_symbol_by_index(backend_object* obj, unsigned int i
 	{
 		if (!iter)
 			return NULL;
+		//backend_symbol *bs = (backend_symbol*)iter->val;
+		//printf("++ %s\n", bs->name);
 		iter=iter->next;
 	}
 	if (iter)
+	{
+		//backend_symbol *bs = (backend_symbol*)iter->val;
+		//printf("++ %s\n", bs->name);
 		return (backend_symbol*)iter->val;
+	}
 
 	return NULL;
 }
@@ -667,6 +673,22 @@ backend_section* backend_get_next_section_by_type(backend_object* obj, backend_s
    if (obj->iter_section)
 		return (backend_section*)obj->iter_section->val;
    return NULL;
+}
+
+backend_symbol* backend_get_section_symbol(backend_object* obj, backend_section* sec)
+{
+	backend_symbol* bs = backend_get_symbol_by_type_first(obj, SYMBOL_TYPE_SECTION);
+	while (bs)
+	{
+		// I hate comparing pointers to objects like this, but what are my options?
+		if (bs->section == sec)
+		{
+			printf("Found symbol %s for section %s\n", bs->name, sec->name);
+			break;
+		}
+		bs = backend_get_symbol_by_type_next(obj, SYMBOL_TYPE_SECTION);
+	}
+	return bs;
 }
 
 void backend_destructor(backend_object* obj)
