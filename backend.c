@@ -265,7 +265,7 @@ backend_symbol* backend_find_symbol_by_val(backend_object* obj, unsigned long va
 	{
 		bs = (backend_symbol*)iter->val;
 		//printf("** %s 0x%lx\n", bs->name, bs->val);
-		if (val >= bs->val && val < (bs->val + bs->size))
+		if ((bs->size == 0 && val == bs->val) || (val >= bs->val && val < (bs->val + bs->size)))
 			return bs;
 	}
 
