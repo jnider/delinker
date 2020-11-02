@@ -1322,7 +1322,7 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
          {
             if (in_sec.flags & (1<<SHF_EXECINSTR))
                flags = SECTION_FLAG_EXECUTE;
-            if (in_sec.flags & (1<<SHF_ALLOC) && !(in_sec.flags & (1<<SHF_EXECINSTR)) && (!in_sec.flags & (1<<SHF_WRITE)))
+            if (in_sec.flags & (1<<SHF_ALLOC) && !(in_sec.flags & (1<<SHF_EXECINSTR)))
                flags = SECTION_FLAG_INIT_DATA;
             if (!(in_sec.flags & SHF_EXECINSTR)) // not exactly accurate - better to set these flags according to section name
                flags = SECTION_FLAG_UNINIT_DATA;
@@ -1885,8 +1885,8 @@ static int elf32_write_file(backend_object* obj, const char* filename)
 					rela.addr = r->offset;
 					rela.info = ELF32_R_INFO(index, reloc_type);
 					rela.addend = r->addend;
-					printf("writing reloc for 0x%x symbol: %s (%u) addend: 0x%x type=%u\n",
-						rela.addr, r->symbol->name, index, rela.addend, reloc_type);
+					//DEBUG_PRINT("writing reloc for 0x%x symbol: %s (%u) addend: 0x%x type=%u\n",
+					//	rela.addr, r->symbol->name, index, rela.addend, reloc_type);
                fwrite(&rela, sizeof(elf32_rela), 1, f);
                r = backend_get_next_reloc(obj);
             }
@@ -1897,7 +1897,7 @@ static int elf32_write_file(backend_object* obj, const char* filename)
       else if (strcmp(".data", bs->name) == 0)
       {
          // write the .data section header
-         printf("Writing .data section\n");
+         DEBUG_PRINT("Writing .data section\n");
          sh.type = SHT_PROGBITS;
          sh.flags = (1<<SHF_ALLOC) | (1<<SHF_WRITE);
          sh.addr = bs->address;
@@ -2242,8 +2242,8 @@ static int elf64_write_file(backend_object* obj, const char* filename)
 					rela.addr = r->offset;
 					rela.info = ELF64_R_INFO(index, reloc_type);
 					rela.addend = r->addend;
-					printf("writing reloc for 0x%lx symbol: %s (%u) addend: 0x%lx type=%u\n",
-						rela.addr, r->symbol->name, index, rela.addend, reloc_type);
+					//DEBUG_PRINT("writing reloc for 0x%lx symbol: %s (%u) addend: 0x%lx type=%u\n",
+					//	rela.addr, r->symbol->name, index, rela.addend, reloc_type);
 					fwrite(&rela, sizeof(elf64_rela), 1, f);
 					r = backend_get_next_reloc(obj);
             }
@@ -2254,7 +2254,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
       else if (strcmp(".data", bs->name) == 0)
       {
          // write the .data section header
-         printf("Writing .data section\n");
+         DEBUG_PRINT("Writing .data section\n");
          sh.type = SHT_PROGBITS;
          sh.flags = (1<<SHF_ALLOC) | (1<<SHF_WRITE);
          sh.addr = bs->address;
@@ -2273,7 +2273,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
       else if (strcmp(".bss", bs->name) == 0)
       {
          // write the .bss section header
-         printf("Writing .bss section\n");
+         DEBUG_PRINT("Writing .bss section\n");
          sh.type = SHT_NOBITS;
          sh.flags = (1<<SHF_ALLOC) | (1<<SHF_WRITE);
          sh.addr = bs->address;
@@ -2292,7 +2292,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
       else if (strcmp(".rodata", bs->name) == 0)
       {
          // write the .rodata section header
-         printf("Writing .rodata section\n");
+         DEBUG_PRINT("Writing .rodata section\n");
          sh.type = SHT_PROGBITS;
          sh.flags = (1<<SHF_ALLOC);
          sh.addr = bs->address;
@@ -2313,7 +2313,7 @@ static int elf64_write_file(backend_object* obj, const char* filename)
          backend_symbol* sym;
          int text_index = backend_get_section_index_by_name(obj, ".text");
          // write the .symtab section header
-         printf("Writing .symtab section\n");
+         DEBUG_PRINT("Writing .symtab section\n");
          sh.type = SHT_SYMTAB;
          sh.link = backend_get_section_index_by_name(obj, ".strtab"); // which string table to use
          if (sh.link == -1)
