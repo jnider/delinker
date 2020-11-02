@@ -154,7 +154,8 @@ static int reconstruct_symbols_x86_64(csh cs_dis, cs_insn *cs_ins, backend_objec
 	if (prev_addr)
 	{
 		sprintf(name, "fn%06lX", prev_addr);
-		backend_add_symbol(obj, name, prev_addr, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
+		backend_symbol *s = backend_add_symbol(obj, name, prev_addr, SYMBOL_TYPE_FUNCTION, cs_ins->address - prev_addr, SYMBOL_FLAG_GLOBAL, sec_text);
+		backend_set_source_file(s, src_name);
 	}
 
 	return 0;
