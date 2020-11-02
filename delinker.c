@@ -181,6 +181,15 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 	// add a fake symbol for the filename
 	backend_add_symbol(obj, fake_src_name, 0, SYMBOL_TYPE_FILE, 0, 0, sec_text);
 
+	// now add a symbol for each section - this is not the final order (that will be set when the object is written)
+	// but why not keep them in some kind of order?
+	backend_section* curr_sec = backend_get_first_section(obj);
+	while (curr_sec)
+	{
+		backend_add_symbol(obj, curr_sec->name, 0, SYMBOL_TYPE_SECTION, 0, 0, curr_sec);
+		curr_sec = backend_get_next_section(obj);
+	}
+
 	unsigned int start_count = backend_symbol_count(obj);
 	DEBUG_PRINT("Starting with %u symbols\n", start_count);
 
@@ -397,6 +406,8 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 	static int data_symbols;
 	int addend = 0;
 
+	DEBUG_PRINT("[0x%x]: looking up symbol @ 0x%x - ", offset, val);
+
 	// First, find the section that this symbol belongs in
 	sec = backend_find_section_by_val(obj, val);
 	if (!sec)
@@ -405,11 +416,28 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 		return -2;
 	}
 
+	if (sec->address == 0)
+	{
+		printf("  section %s has a zero address\n", sec->name);
+		return -3;
+	}
+
+	if (!(sec->flags & SECTION_FLAG_INIT_DATA | SECTION_FLAG_UNINIT_DATA | SECTION_FLAG_EXECUTE))
+	{
+		printf("  section %s is not a program section\n", sec->name);
+		return -4;
+	}
+
 	// Check to see if this is a known symbol
-	DEBUG_PRINT("[0x%x]: looking up symbol @ 0x%x - ", offset, val);
 	bs = backend_find_symbol_by_val(obj, val);
 	if (bs)
 	{
+		if (bs->type != SYMBOL_TYPE_FUNCTION && bs->type != SYMBOL_TYPE_OBJECT)
+		{
+			printf("  symbol %s is not a function or data object\n", bs->name);
+			return -5;
+		}
+
 		// add a relocation
 		DEBUG_PRINT("   Creating (known) relocation to %s @ 0x%x\n", bs->name, offset);
 		return backend_add_relocation(obj, offset, t, -4, bs);
@@ -418,52 +446,54 @@ int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, in
 	{
 		printf("No known symbol for 0x%x but it is in section %s %u\n", val, sec->name, sec->type);
 
-		// symbol must be in a program section (GOT, PLT, data, code)
-		if (sec->type != SECTION_TYPE_PROG)
+		// symbol must be in a program section (GOT, PLT, data, code or BSS)
+		if (sec->type == SECTION_TYPE_NOBITS)
+		{
+			if (strcmp(sec->name, ".bss") != 0)
+				printf("Warning: NOBITS section has name other than .bss - this is unusual\n");
+		}
+		else if (sec->type != SECTION_TYPE_PROG)
 		{
 			printf("Symbol is not in a program section - no good\n");
-			return -5;
-		}
-
-		// Maybe it has an import symbol
-		DEBUG_PRINT("Checking for import symbol @ %x\n", val);
-		bs = backend_find_import_by_address(obj, val);
-		if (bs)
-		{
-			printf("  Found import symbol %s (flags=%u)\n", bs->name, bs->flags);
-			bs = backend_find_symbol_by_name(obj, bs->name);
-			if (bs)
-			{
-				printf("   Creating (PLT) relocation to %s @ 0x%x\n", bs->name, offset);
-				return backend_add_relocation(obj, offset, RELOC_TYPE_PLT, -4, bs);
-			}
-		}
-		else if (strcmp(sec->name, ".plt.got") == 0)
-		{
-			printf("Not sure what to do with .plt.got symbols. They are dynamic but don't have an import??\n");
-			return -4;
-		}
-		else
-		{
-			printf("Can't find import symbol!\n");
 			return -6;
 		}
 
-		if ((sec->flags & SECTION_FLAG_INIT_DATA) || (sec->flags & SECTION_FLAG_UNINIT_DATA))
+		if (sec->flags & SECTION_FLAG_EXECUTE)
 		{
-			// get the section symbol related to this section
-			int sec_index = backend_get_section_index_by_name(obj, sec->name);
-			//printf("Section %s is index %i\n", sec->name, sec_index);
-			bs = backend_find_symbol_by_index(obj, sec_index);
+			// Maybe it has an import symbol
+			DEBUG_PRINT("Checking for import symbol @ %x\n", val);
+			bs = backend_find_import_by_address(obj, val);
 			if (bs)
 			{
-				if (bs->type != SYMBOL_TYPE_SECTION)
-					printf("Symbol is not a section symbol!\n");
-
-				// add a relocation
+				printf("  Found import symbol %s (flags=%u)\n", bs->name, bs->flags);
+				bs = backend_find_symbol_by_name(obj, bs->name);
+				if (bs)
+				{
+					printf("   Creating (PLT) relocation to %s @ 0x%x\n", bs->name, offset);
+					return backend_add_relocation(obj, offset, RELOC_TYPE_PLT, -4, bs);
+				}
+			}
+			else if (strcmp(sec->name, ".plt.got") == 0)
+			{
+				printf("Not sure what to do with .plt.got symbols. They are dynamic but don't have an import??\n");
+				return -7;
+			}
+			else
+			{
+				printf("Can't find import symbol!\n");
+				return -8;
+			}
+		}
+		else if ((sec->flags & SECTION_FLAG_INIT_DATA) || (sec->flags & SECTION_FLAG_UNINIT_DATA))
+		{
+			// get the section symbol related to this section
+			bs = backend_get_section_symbol(obj, sec);
+			if (bs)
+			{
+				// add a relocation (for data only)
 				if (t == RELOC_TYPE_PC_RELATIVE)
 				{
-					addend = val - sec->address - 4;
+					addend = val - sec->address;
 					printf("  Creating PC_REL to %s +0x%x\n", bs->name, addend);
 					return backend_add_relocation(obj, offset, t, addend, bs);
 				}
@@ -938,8 +968,9 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 		r = backend_get_next_reloc(src);
 	}
 
+	DEBUG_PRINT("Output file has %u relocations\n", backend_relocation_count(dest));
+/*
 #ifdef DEBUG
-	printf("Output file has %u relocations\n", backend_relocation_count(dest));
 	backend_reloc* tr = backend_get_first_reloc(dest);
 	while (tr)
 	{
@@ -947,6 +978,7 @@ static int copy_relocations(backend_object* src, backend_object* dest)
 		tr = backend_get_next_reloc(dest);
 	}
 #endif // DEBUG
+*/
 
 	return 0;
 }
