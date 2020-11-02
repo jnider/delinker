@@ -1182,7 +1182,6 @@ void elf64_add_import_from_rela(backend_object *obj, elf64_rela* rela, backend_s
 
 		if (mod)
 		{
-			printf("Adding import function %s@%s\n", sym_name, module_name);
 			if (!backend_add_import_function(mod, sym_name, rela->addr))
 				printf("Error adding import function %s@%s\n", sym_name, module_name);
 		}
@@ -1642,9 +1641,9 @@ dynsym:
 					backend_symbol* import = backend_find_import_by_address(obj, target);
 					if (import)
 					{
-						DEBUG_PRINT("Adding symbol %s @ 0x%lx size=%u\n", import->name, pc_addr - 0xb, entry_size);
-						backend_symbol *pltsym = backend_add_symbol(obj, import->name, pc_addr - 0xb,
-							SYMBOL_TYPE_FUNCTION, entry_size, 0, sec_text);
+						DEBUG_PRINT("Adding symbol %s @ 0x%lx\n", import->name, pc_addr);
+						backend_symbol *pltsym = backend_add_symbol(obj, import->name, pc_addr,
+							SYMBOL_TYPE_FUNCTION, 0, 0, sec_text);
 						if (!pltsym)
 							printf("Error adding symbol\n");
 					}
