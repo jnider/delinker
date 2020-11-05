@@ -7,6 +7,8 @@ public functions for talking to backends */
 
 #include "ll.h"
 
+#define MAX_STRING_TABLES 100 /* this needs some explanation */
+
 #define SECTION_FLAG_INIT_DATA	(1<<SECTION_FLAG_SHIFT_INIT_DATA)
 #define SECTION_FLAG_UNINIT_DATA	(1<<SECTION_FLAG_SHIFT_UNINIT_DATA)
 #define SECTION_FLAG_COMMENTS		(1<<SECTION_FLAG_SHIFT_COMMENTS)
@@ -73,6 +75,7 @@ typedef enum backend_section_type
 	SECTION_TYPE_REL,
 	SECTION_TYPE_SHLIB,
 	SECTION_TYPE_DYNSYM,
+	SECTION_TYPE_VERNEED,
 } backend_section_type;
 
 typedef enum backend_symbol_flag
@@ -91,7 +94,6 @@ typedef enum backend_reloc_type
 
 typedef struct backend_section
 {
-//   unsigned int index;
    char* name;
    unsigned int size;
    unsigned long address;	// base address for loading this section
@@ -100,6 +102,8 @@ typedef struct backend_section
    unsigned char* data;
    unsigned int alignment; // 2**x
 	unsigned int entry_size;
+	unsigned int index;		// original index in input file
+	struct backend_section *strtab; // used in some sections that contain entries that require a string table
 ////// private data ///////
 	int _name;					// used to hold the index into the string table when writing
 } backend_section;
@@ -208,6 +212,8 @@ unsigned int backend_section_count(backend_object* obj);
 backend_section* backend_add_section(backend_object* obj, const char* name, unsigned long size, unsigned long address,
    unsigned char* data, unsigned int entry_size, unsigned int alignment, unsigned long flags);
 void backend_section_set_type(backend_section *s, backend_section_type t);
+void backend_section_set_index(backend_section *s, unsigned int i);
+void backend_section_set_strtab(backend_section *s, backend_section* strtab);
 backend_section* backend_find_section_by_val(backend_object* obj, unsigned long val);
 backend_section* backend_get_section_by_index(backend_object* obj, unsigned int index);
 backend_section* backend_get_section_by_name(backend_object* obj, const char* name);

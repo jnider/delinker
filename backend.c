@@ -552,6 +552,16 @@ void backend_section_set_type(backend_section *s, backend_section_type t)
 		s->type = t;
 }
 
+void backend_section_set_index(backend_section *s, unsigned int i)
+{
+	s->index = i;
+}
+
+void backend_section_set_strtab(backend_section *s, backend_section* strtab)
+{
+	s->strtab = strtab;
+}
+
 backend_section* backend_get_section_by_index(backend_object* obj, unsigned int index)
 {
 	int i=1;

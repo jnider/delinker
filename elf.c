@@ -1275,6 +1275,9 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    // load sections
    for (int i=1; i < h->sh_num; i++)
    {
+		unsigned long flags=0;
+		unsigned char* data = NULL;
+
       fseek(f, h->sh_off + h->shent_size * i, SEEK_SET);
 		if (fread(&in_sec, h->shent_size, 1, f) != 1)
 			goto error_strtab;
@@ -1286,64 +1289,84 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 		if (backend_get_section_by_name(obj, name))
 		{
 			printf("Warning: duplicate section \"%s\" - skipping\n", name);
+			continue;
 		}
+
+		// load the section data unless it is marked as unloadable
+		if (in_sec.type != SHT_NOBITS)
+		{
+			data = (unsigned char*)malloc(in_sec.size);
+
+			fseek(f, in_sec.offset, SEEK_SET);
+			if (fread(data, in_sec.size, 1, f) != 1)
+			{
+				fprintf(stderr, "Error loading section %s data\n", name);
+				free(data);
+				goto error_strtab;
+			}
+		}
+
+		// set flags for known sections by name
+		backend_section_type t;
+		if (strcmp(name, ".text") == 0)
+			flags = SECTION_FLAG_EXECUTE;
+		else if (strcmp(name, ".init") == 0)
+			flags = SECTION_FLAG_EXECUTE;
+		else if (strcmp(name, ".data") == 0)
+			flags = SECTION_FLAG_INIT_DATA;
+		else if (strcmp(name, ".rodata") == 0)
+			flags = SECTION_FLAG_INIT_DATA;
+		else if (strcmp(name, ".bss") == 0)
+			flags = SECTION_FLAG_UNINIT_DATA;
 		else
 		{
-         unsigned long flags=0;
-			unsigned char* data = NULL;
+			if (in_sec.flags & (1<<SHF_EXECINSTR))
+				flags = SECTION_FLAG_EXECUTE;
+			if (in_sec.flags & (1<<SHF_ALLOC) && !(in_sec.flags & (1<<SHF_EXECINSTR)))
+				flags = SECTION_FLAG_INIT_DATA;
+			if (!(in_sec.flags & SHF_EXECINSTR)) // not exactly accurate - better to set these flags according to section name
+				flags = SECTION_FLAG_UNINIT_DATA;
+		}
 
-			// load the section data unless it is marked as unloadable
-			if (in_sec.type != SHT_NOBITS)
-			{
-				data = (unsigned char*)malloc(in_sec.size);
+		uint64_t strtab_index = -1;
+		if (in_sec.type == SHT_SYMTAB || in_sec.type == SHT_DYNSYM || in_sec.type == SHT_DYNAMIC)
+		{
+			// link points to the string table needed for symbols in this section
+			DEBUG_PRINT("Section %s needs string table in %u\n", name, in_sec.link);
+			strtab_index = in_sec.link;
+		}
 
-				fseek(f, in_sec.offset, SEEK_SET);
-				if (fread(data, in_sec.size, 1, f) != 1)
-				{
-					fprintf(stderr, "Error loading section %s data\n", name);
-					free(data);
-					goto error_strtab;
-				}
-			}
-
-         // set flags for known sections by name
-			backend_section_type t;
-         if (strcmp(name, ".text") == 0)
-            flags = SECTION_FLAG_EXECUTE;
-         else if (strcmp(name, ".init") == 0)
-            flags = SECTION_FLAG_EXECUTE;
-         else if (strcmp(name, ".data") == 0)
-            flags = SECTION_FLAG_INIT_DATA;
-         else if (strcmp(name, ".rodata") == 0)
-            flags = SECTION_FLAG_INIT_DATA;
-         else if (strcmp(name, ".bss") == 0)
-            flags = SECTION_FLAG_UNINIT_DATA;
-         else
-         {
-            if (in_sec.flags & (1<<SHF_EXECINSTR))
-               flags = SECTION_FLAG_EXECUTE;
-            if (in_sec.flags & (1<<SHF_ALLOC) && !(in_sec.flags & (1<<SHF_EXECINSTR)))
-               flags = SECTION_FLAG_INIT_DATA;
-            if (!(in_sec.flags & SHF_EXECINSTR)) // not exactly accurate - better to set these flags according to section name
-               flags = SECTION_FLAG_UNINIT_DATA;
-         }
-
-         backend_section *s = backend_add_section(obj, name, in_sec.size, in_sec.addr, data, in_sec.entsize, in_sec.addralign, flags);
-			backend_section_set_type(s, elf_to_backend_section_type((section_type)in_sec.type));
-      }
-   }
+		backend_section *s = backend_add_section(obj, name, in_sec.size, in_sec.addr, data, in_sec.entsize, in_sec.addralign, flags);
+		if (!s)
+		{
+			printf("Error adding section %s\n", name);
+			goto error_strtab;
+		}
+		backend_section_set_type(s, elf_to_backend_section_type((section_type)in_sec.type));
+		backend_section_set_index(s, i);
+		backend_section_set_strtab(s, (backend_section*)strtab_index);
+	}
 
    // now that we have the raw data, try to format it as objects the backend can understand (strings, symbols, sections, relocs, etc)
 
-	// find a string table section for looking up symbol names later. There may be more than one, but for now assume there is only one
-   sec_strtab = backend_get_section_by_type(obj, SECTION_TYPE_STRTAB);
-   if (!sec_strtab)
-   {
-      printf("Warning: can't find string table section!\n");
-      //goto done;
-   }
+	// assign the correct string table to the sections that need it
+	for (sec = backend_get_first_section(obj); sec; sec = backend_get_next_section(obj))
+	{
+		if (sec->type == SECTION_TYPE_SYMTAB ||
+			sec->type == SECTION_TYPE_DYNSYM ||
+			sec->type == SECTION_TYPE_DYNAMIC ||
+			sec->type == SECTION_TYPE_VERNEED)
+		{
+			if ((uint64_t)sec->strtab < MAX_STRING_TABLES)
+			{
+				sec_strtab = backend_get_section_by_index(obj, (uint64_t)sec->strtab);
+				DEBUG_PRINT("Setting strtab for section %s to %s\n", sec->name, sec_strtab->name);
+				backend_section_set_strtab(sec, sec_strtab);
+			}
+		}
+	}
 
-   // create symbols
+   // create entries for symbols found in the symbol table
    sec_symtab = backend_get_section_by_name(obj, ".symtab");
    if (!sec_symtab)
    {
@@ -1352,15 +1375,17 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
    }
 
 	// Add each symbol to the backend object
-   sym = (elf64_symbol*)sec_symtab->data;
-   for (int i=0; i < sec_symtab->size/sec_symtab->entry_size; i++, sym++)
+   for (sym = (elf64_symbol*)sec_symtab->data;
+		sym < (elf64_symbol*)(sec_symtab->data + sec_symtab->size);
+		sym++)
 	{
 		const char* name = NULL;
 		backend_section* sec = NULL;
 		backend_symbol *s;
 		int symbol_flags=0;
 
-		// get the symbol name
+		// get the string table and look up the symbol name
+		sec_strtab = sec_symtab->strtab;
 		name = (char*)sec_strtab->data + sym->name;
 		DEBUG_PRINT("Symbol: %s @ 0x%lx\n", name, sym->value);
 
