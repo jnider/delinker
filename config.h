@@ -3,7 +3,7 @@
 
 enum reconstructor_functions
 {
-	RECONSTRUCTOR_BUILTIN,
+	RECONSTRUCTOR_INTERNAL,
 	RECONSTRUCTOR_NUCLEUS
 };
 

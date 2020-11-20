@@ -1,7 +1,13 @@
 #include "capstone/capstone.h"
 #include "backend.h"
 
-extern int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, int offset);
+#ifdef DEBUG
+#define DEBUG_PRINT printf
+#else
+#define DEBUG_PRINT //
+#endif
+
+extern int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, int offset, unsigned int hint);
 
 void reloc_x86_16(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn *cs_ins)
 {
@@ -9,28 +15,104 @@ void reloc_x86_16(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 	uint64_t pc_addr = sec->address;
 	size_t n = sec->size;
 
-	printf("Disassembling from 0x%lx to 0x%lx\n", sec->address, sec->address + sec->size);
+	DEBUG_PRINT("Disassembling from 0x%lx to 0x%lx\n", sec->address, sec->address + sec->size);
 	while(cs_disasm_iter(cs_dis, &pc, &n, &pc_addr, cs_ins))
 	{
-		long val;
-		short* val_ptr=0;
+		unsigned int offset;
+		unsigned int val;
+		unsigned short *val_ptr=NULL;
+		unsigned short *val_ptr_seg=NULL;
+		unsigned int *val_ptr_i=NULL;
 		backend_symbol *bs=NULL;
 		int opcode_size;
 
 		switch (cs_ins->id)
 		{
 		case X86_INS_CALL:
-					// ff 16 d0 53          	call   *0x53d0
+			// e8 82 00             	call   264 <fn000264>
+			// ff 16 d0 53          	call   *0x53d0
 			if (cs_ins->size == 4 && cs_ins->bytes[0] == 0xff && cs_ins->bytes[1] == 0x16) 
 			{
-				val_ptr = (short*)(cs_ins->bytes + 2);
+				val_ptr = (unsigned short*)(pc - 2);
 				val = *val_ptr;
+				offset = cs_ins->address+1;
+			}
+			else if (cs_ins->size == 3 && cs_ins->bytes[0] == 0xe8)
+			{
+				// This is a relative call, which gets replaced by a reloc so the functions
+				// are independent in terms of size and location (can be reordered during link)
+				val_ptr = (unsigned short*)(pc - 2);
+				val = *val_ptr + pc_addr;
+				offset = cs_ins->address+1;
+			}
+			else if (cs_ins->size == 5 && cs_ins->bytes[0] == 0x9a)
+			{
+				val_ptr = (unsigned short*)(pc - 4);
+				val = *val_ptr;
+				offset = cs_ins->address+1;
 			}
 			if (val_ptr)
 			{
-				printf("creating relocation: val=%lu val_ptr=%p\n", val, val_ptr);
-				if (create_reloc(obj, RELOC_TYPE_OFFSET, *val_ptr, cs_ins->address+2) == 0)
+				//DEBUG_PRINT("creating relocation: val=%x val_ptr=%p\n", val, val_ptr);
+				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, offset, 1) == 0)
 					*val_ptr = 0;
+				else
+					printf("Error creating relocation @ 0x%lx: val=%x\n", pc_addr, val);
+			}
+			break;
+
+		case X86_INS_LCALL:
+			// 9a 1b 03 00 00       	lcall  $0x0,$0x31b
+			if (cs_ins->size == 5 && cs_ins->bytes[0] == 0x9a)
+			{
+				val_ptr_i = (unsigned int*)(pc - 4);
+				val_ptr_seg = (unsigned short*)(pc - 2);
+				val_ptr = (unsigned short*)(pc - 4);
+				val = (*val_ptr_seg << 4) + *val_ptr;
+				offset = cs_ins->address+1;
+			}
+			if (val_ptr_i)
+			{
+				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, offset, 1) == 0)
+					*val_ptr_i = 0;
+				else
+					printf("Error creating relocation @ 0x%lx: val=%x\n", pc_addr, val);
+			}
+			break;
+
+		case X86_INS_MOV:
+			// a1 1c 73             	mov    0x731c,%ax
+			// a2 c6 64             	mov    %al,0x64c6
+			// a3 24 71             	mov    %ax,0x7124
+			// c6 06 c1 64 01       	movb   $0x1,0x64c1
+			// c7 06 c0 69 0f 52    	movw   $0x520f,0x69c0
+			if (cs_ins->size == 3 &&
+				(cs_ins->bytes[0] == 0xa1 ||
+				cs_ins->bytes[0] == 0xa2 ||
+				cs_ins->bytes[0] == 0xa3))
+			{
+				val_ptr = (unsigned short*)(pc - 2);
+				val = *val_ptr + pc_addr;
+				offset = cs_ins->address+1;
+			}
+			else if (cs_ins->size == 5 && cs_ins->bytes[0] == 0xc6 && cs_ins->bytes[1] == 0x06)
+			{
+				val_ptr = (unsigned short*)(pc - 3);
+				val = *val_ptr + pc_addr;
+				offset = cs_ins->address+2;
+			}
+			else if (cs_ins->size == 6 && cs_ins->bytes[0] == 0xc7 && cs_ins->bytes[1] == 0x06)
+			{
+				val_ptr = (unsigned short*)(pc - 4);
+				val = *val_ptr + pc_addr;
+				offset = cs_ins->address+2;
+			}
+			if (val_ptr)
+			{
+				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, offset, 0) == 0)
+					*val_ptr = 0;
+				else
+					printf("Error creating relocation @ 0x%lx: val=%x\n", pc_addr, val);
 			}
 			break;
 		}
@@ -81,7 +163,7 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 
 			if (val_ptr)
 			{
-				if (create_reloc(obj, RELOC_TYPE_OFFSET, *val_ptr, cs_ins->address+2) == 0)
+				if (create_reloc(obj, RELOC_TYPE_OFFSET, *val_ptr, cs_ins->address+2, 0) == 0)
 					*val_ptr = 0;
 			}
 			break;
@@ -102,7 +184,7 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 				val_ptr = (int*)(cs_ins->bytes + 1);
 				val = cs_ins->address + cs_ins->size + *val_ptr;
 			}
-			if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+1) == 0)
+			if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+1, 1) == 0)
 				break;
 				//*val_ptr = 0;
 			break;
@@ -140,7 +222,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			{
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
-				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3) == 0)
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, 0) == 0)
 					*val_ptr = 0;
 			}
 			break;
@@ -153,7 +235,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			{
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
-				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3) == 0)
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, 0) == 0)
 					*val_ptr = 0;
 			}
 			// 48 89 05 87 39 10 00 	mov    %rax,0x103987(%rip)
@@ -162,7 +244,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			{
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
-				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3) == 0)
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, 0) == 0)
 					*val_ptr = 0;
 			}
 
@@ -172,7 +254,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			{
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 1);
 				val = *val_ptr;
-				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, cs_ins->address+1) == 0)
+				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, cs_ins->address+1, 0) == 0)
 					*val_ptr = 0;
 			}
 			break;
@@ -184,7 +266,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			{
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
-				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3) == 0)
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, 0) == 0)
 					*val_ptr = 0;
 			}
 			break;
@@ -198,7 +280,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 1);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
 				//printf("Found CALL E8 to 0x%x @ 0x%lx\n", val, cs_ins->address);
-				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+1) == 0)
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+1, 1) == 0)
 					*val_ptr = 0;
 			}
     		//	ff 15 66 2f 00 00    	callq  *0x2f66(%rip)        # 3fe0 <__libc_start_main@GLIBC_2.2.5>
@@ -221,7 +303,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			int *val_ptr = (int*)((char*)pc - cs_ins->size + 4);
 			val = cs_ins->address + *val_ptr + cs_ins->size;
 			//printf("Found VMOVAPD to 0x%x @ 0x%lx\n", val, cs_ins->address);
-			if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+4) == 0)
+			if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+4, 0) == 0)
 				*val_ptr = 0;
 			break;
 
@@ -231,4 +313,3 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 
 	}
 }
-
