@@ -325,7 +325,7 @@ backend_symbol* backend_find_symbol_by_val_type(backend_object* obj, unsigned lo
 	{
 		bs = (backend_symbol*)iter->val;
 //			printf("Found symbol %s (%lu)\n", bs->name, bs->val);
-		if (bs->val == val && bs->type == type)
+		if (((bs->size == 0 && val == bs->val) || (val >= bs->val && val < (bs->val + bs->size))) && bs->type == type)
 			return bs;
 	}
 
@@ -695,7 +695,7 @@ backend_symbol* backend_get_section_symbol(backend_object* obj, backend_section*
 		// I hate comparing pointers to objects like this, but what are my options?
 		if (bs->section == sec)
 		{
-			printf("Found symbol %s for section %s\n", bs->name, sec->name);
+			//printf("Found symbol %s for section %s\n", bs->name, sec->name);
 			break;
 		}
 		bs = backend_get_symbol_by_type_next(obj, SYMBOL_TYPE_SECTION);
