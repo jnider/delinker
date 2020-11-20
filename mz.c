@@ -12,8 +12,6 @@ http://files.shikadi.net/malv/files/unlzexe.c - for LZ90 + LZ91 decompression
 
 #pragma pack(1)
 
-#define DEBUG
-
 #ifdef DEBUG
 #define DEBUG_PRINT printf
 #else
@@ -194,10 +192,13 @@ static backend_object* mz_read_file(const char* filename)
 		goto done;
 	}
 
-	backend_set_entry_point(obj, h->cs << 4 | h->ip);
+	backend_set_entry_point(obj, (h->cs * PARAGRAPH_SIZE) + h->ip);
 
-	// we only have one 'section' - mixed code & data
-	s = backend_add_section(obj, ".text", sec_size, 0, data, 1, 1, SECTION_FLAG_EXECUTE | SECTION_FLAG_INIT_DATA);
+	// we only have one input 'section' - mixed code & data, but we want to separate them
+	// start with a duplicate, and cut the unnecessary pieces later
+	s = backend_add_section(obj, ".data", sec_size, 0, data, 0, 1, SECTION_FLAG_INIT_DATA);
+	backend_section_set_type(s, SECTION_TYPE_PROG);
+	s = backend_add_section(obj, ".text", sec_size, 0, data, 0, 1, SECTION_FLAG_EXECUTE);
 	backend_section_set_type(s, SECTION_TYPE_PROG);
 
 done:
