@@ -70,6 +70,7 @@ error_msg error_code_str[] =
 
 static struct option options[] =
 {
+  {"entry-name", required_argument, 0, 'e'},
   {"ignore", required_argument, 0, 'I'},
   {"output-target", required_argument, 0, 'O'},
   {"reconstruct-symbols", required_argument, 0, 'R'},
@@ -88,6 +89,7 @@ usage(void)
    fprintf(stderr, "creates a set of .o files that can be relinked.\n\n");
    fprintf(stderr, "delinker [OPTIONS] <input file>\n\n");
    fprintf(stderr, "OPTIONS:\n");
+   fprintf(stderr, "-e, --entry-name\tSet the name of the entry point function\n");
    fprintf(stderr, "-R, --reconstruct-symbols\tRebuild the symbol table by various techniques. Use -R ? to see the options\n");
    fprintf(stderr, "-S, --symbol-per-file\t\tCreate a separate .o file for each function\n");
    fprintf(stderr, "-O, --output-target\t\tSpecify the output file format (see supported backend targets below)\n");
@@ -374,20 +376,20 @@ static int reconstruct_symbols(backend_object* obj, int padding)
 	{
 		if (bs->val == entry)
 		{
-			DEBUG_PRINT("found entry point %s @ 0x%lx - renaming to 'main'\n", bs->name, bs->val);
+			DEBUG_PRINT("found entry point %s @ 0x%lx - renaming to '%s'\n", bs->name, bs->val, config.entry_name);
 			free(bs->name);
-			bs->name = strdup(SYMBOL_NAME_MAIN);
+			bs->name = strdup(config.entry_name);
 		}
 		else
 		{
 			printf("Entry point is in the middle of a symbol - splitting\n");
-			backend_split_symbol(obj, bs, SYMBOL_NAME_MAIN, entry, SYMBOL_TYPE_FUNCTION, SYMBOL_FLAG_GLOBAL);
+			backend_split_symbol(obj, bs, config.entry_name, entry, SYMBOL_TYPE_FUNCTION, SYMBOL_FLAG_GLOBAL);
 		}
 	}
 	else
 	{
 		printf("No symbol for entry point @ 0x%lx - the recovery is not very accurate\n", backend_get_entry_point(obj));
-      //backend_add_symbol(obj, SYMBOL_NAME_MAIN, entry, SYMBOL_TYPE_FUNCTION, 0);
+      //backend_add_symbol(obj, config.entry_name, entry, SYMBOL_TYPE_FUNCTION, size, flags, section);
 	}
 
 	printf("%u symbols after reconstruction\n", backend_symbol_count(obj) - start_count);
@@ -1290,12 +1292,16 @@ main (int argc, char *argv[])
    int c;
    while (1)
    {
-      c = getopt_long (argc, argv, "I:O:R:Sv", options, 0);
+      c = getopt_long (argc, argv, "e:I:O:R:Sv", options, 0);
       if (c == -1)
       break;
 
       switch (c)
       {
+		case 'e':
+			config.entry_name = strdup(optarg);
+			break;
+
 		case 'I':
 			ll_push(config.ignore_list, strdup(optarg));
 			break;
@@ -1339,6 +1345,8 @@ main (int argc, char *argv[])
       usage();
       return -1;
    }
+	if (!config.entry_name)
+		config.entry_name = strdup(SYMBOL_NAME_MAIN);
 
    input_filename = argv[optind];
 

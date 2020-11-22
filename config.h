@@ -15,6 +15,7 @@ struct config
 	bool symbol_per_file;		// write one symbol in each file - this is really useful
 										// when planning to make modifications before relinking.
 	linked_list *ignore_list;	// List of symbols to ignore
+	char *entry_name;				// name of the entry point function
 };
 
 // make the config globally accessible
