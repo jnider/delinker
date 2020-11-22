@@ -21,6 +21,7 @@ void reloc_x86_16(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 		unsigned int offset;
 		unsigned int val;
 		unsigned short *val_ptr=NULL;
+		short *val_rel_ptr=NULL;
 		unsigned short *val_ptr_seg=NULL;
 		unsigned int *val_ptr_i=NULL;
 		backend_symbol *bs=NULL;
@@ -41,8 +42,9 @@ void reloc_x86_16(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			{
 				// This is a relative call, which gets replaced by a reloc so the functions
 				// are independent in terms of size and location (can be reordered during link)
-				val_ptr = (unsigned short*)(pc - 2);
-				val = *val_ptr + pc_addr;
+				val_rel_ptr = (short*)(pc - 2);
+				val_ptr = (unsigned short*)(val_rel_ptr);
+				val = *val_rel_ptr + pc_addr;
 				offset = cs_ins->address+1;
 			}
 			else if (cs_ins->size == 5 && cs_ins->bytes[0] == 0x9a)
