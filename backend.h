@@ -203,6 +203,7 @@ backend_symbol* backend_find_symbol_by_index(backend_object* obj, unsigned int i
 backend_symbol* backend_find_symbol_by_val_type(backend_object* obj, unsigned long val, backend_symbol_type type);
 backend_symbol* backend_find_nearest_symbol(backend_object* obj, unsigned long val);
 unsigned int backend_get_symbol_index(backend_object* obj, backend_symbol* s); // if the symbol table were to be serialized, what would be the index of this symbol in the table?
+backend_symbol* backend_merge_symbol(backend_object* obj, backend_symbol *sym); // merge a symbol with the previous one
 backend_symbol* backend_split_symbol(backend_object* obj, backend_symbol *sym, const char* name, unsigned long val, backend_symbol_type type, unsigned int flags);
 int backend_remove_symbol_by_name(backend_object* obj, const char* name);
 int backend_sort_symbols(backend_object* obj, backend_cmpfunc cmp);

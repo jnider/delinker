@@ -63,6 +63,13 @@ void backend_register(backend_ops* be)
    //printf("num backends %i\n", num_backends);
 }
 
+static int cmp_by_name(void* a, const void* b)
+{
+	backend_symbol* s = (backend_symbol*)a;
+	const char* name = (const char*)b;
+	return strcmp(s->name, name);
+}
+
 backend_type backend_lookup_target(const char* name)
 {
 	if (!name)
@@ -351,6 +358,39 @@ backend_symbol* backend_find_nearest_symbol(backend_object* obj, unsigned long v
 	return NULL;
 }
 
+backend_symbol* backend_merge_symbol(backend_object* obj, backend_symbol *sym)
+{
+	backend_symbol *prev=NULL;
+
+	if (!obj || !obj->symbol_table)
+		return NULL;
+
+	// find the insertion point
+	for (list_node* iter=(list_node*)ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
+	{
+		if (iter->val == sym)
+		{
+			if (!prev)
+				return sym;
+
+			// there may be empty space between the functions, so we can't just add the sizes together
+			printf("Merging into %s: oldsize=%lu newsize=%lu\n", prev->name, prev->size, (sym->val + sym->size) - prev->val);
+			prev->size = (sym->val + sym->size) - prev->val;
+			printf("Removing %s\n", sym->name);
+			backend_symbol *old = (backend_symbol *)ll_remove(obj->symbol_table, sym->name, cmp_by_name);
+			if (old)
+			{
+				free(old->name);
+				old->name = NULL;
+				free(old);
+			}
+			return prev;
+		}
+		prev = (backend_symbol *)iter->val;
+	}
+	return NULL;
+}
+
 backend_symbol* backend_split_symbol(backend_object* obj, backend_symbol *sym, const char* name, unsigned long val, backend_symbol_type type, unsigned int flags)
 {
 	if (!obj || !obj->symbol_table)
@@ -427,13 +467,6 @@ unsigned int backend_get_symbol_index(backend_object* obj, backend_symbol* s)
 	}
 
 	return (unsigned int)-1;
-}
-
-static int cmp_by_name(void* a, const void* b)
-{
-	backend_symbol* s = (backend_symbol*)a;
-	const char* name = (const char*)b;
-	return strcmp(s->name, name);
 }
 
 int backend_remove_symbol_by_name(backend_object* obj, const char* name)
