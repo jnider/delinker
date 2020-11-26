@@ -1438,18 +1438,16 @@ static backend_object* elf64_read_file(FILE* f, elf64_header* h)
 
 		// add the symbol
 		s = backend_add_symbol(obj, name, sym->value, elf_to_backend_sym_type(sym->info), sym->size, symbol_flags, sec);
-		if (!s)
+		if (s)
 		{
-			// error adding symbol
-		}
-
-		// Some formats contain information relating symbols to the source file
-		// that originally defined them. If we have that information, save it in
-		// the backend object.
-		if (src_file)
-		{
-			backend_set_source_file(s, src_file);
-			//printf("Adding symbol %s to %s\n", name, src_file);
+			// Some formats contain information relating symbols to the source file
+			// that originally defined them. If we have that information, save it in
+			// the backend object.
+			if (src_file)
+			{
+				backend_set_source_file(s, src_file);
+				//printf("Adding symbol %s to %s\n", name, src_file);
+			}
 		}
    }
 
