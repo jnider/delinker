@@ -1,13 +1,12 @@
 #include "capstone/capstone.h"
 #include "backend.h"
+#include "reloc.h"
 
 #ifdef DEBUG
 #define DEBUG_PRINT printf
 #else
 #define DEBUG_PRINT //
 #endif
-
-extern int create_reloc(backend_object *obj, backend_reloc_type t, unsigned int val, int offset, unsigned int hint);
 
 void reloc_x86_16(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn *cs_ins)
 {
@@ -56,7 +55,7 @@ void reloc_x86_16(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			if (val_ptr)
 			{
 				//DEBUG_PRINT("creating relocation: val=%x val_ptr=%p\n", val, val_ptr);
-				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, offset, 1) == 0)
+				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, offset, RELOC_HINT_CALL) == 0)
 					*val_ptr = 0;
 				else
 					printf("Error creating relocation @ 0x%lx: val=%x\n", pc_addr, val);
@@ -75,10 +74,30 @@ void reloc_x86_16(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			}
 			if (val_ptr_i)
 			{
-				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, offset, 1) == 0)
+				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, offset, RELOC_HINT_CALL) == 0)
 					*val_ptr_i = 0;
 				else
 					printf("Error creating relocation @ 0x%lx: val=%x\n", pc_addr, val);
+			}
+			break;
+
+		case X86_INS_JMP:
+			if (cs_ins->size == 3 && cs_ins->bytes[0] == 0xe9)
+			{
+				// This is a relative call, which may need a reloc if it jumps outside of the current function
+				val_rel_ptr = (short*)(pc - 2);
+				val_ptr = (unsigned short*)(val_rel_ptr);
+				val = *val_rel_ptr + pc_addr;
+				offset = cs_ins->address+1;
+				bs = backend_find_symbol_by_val_type(obj, pc_addr-cs_ins->size, SYMBOL_TYPE_FUNCTION);
+				if (val >= bs->val + bs->size)
+				{
+					printf("[0x%lx]:You are in function %s, jumping to 0x%x\n", cs_ins->address, bs->name, val);
+					if (create_reloc(obj, RELOC_TYPE_OFFSET, val, offset, RELOC_HINT_JUMP) == 0)
+						*val_ptr = 0;
+					else
+						printf("Error creating relocation @ 0x%lx: val=%x\n", pc_addr, val);
+				}
 			}
 			break;
 
@@ -111,7 +130,7 @@ void reloc_x86_16(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			}
 			if (val_ptr)
 			{
-				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, offset, 0) == 0)
+				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, offset, RELOC_HINT_NONE) == 0)
 					*val_ptr = 0;
 				else
 					printf("Error creating relocation @ 0x%lx: val=%x\n", pc_addr, val);
@@ -165,7 +184,7 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 
 			if (val_ptr)
 			{
-				if (create_reloc(obj, RELOC_TYPE_OFFSET, *val_ptr, cs_ins->address+2, 0) == 0)
+				if (create_reloc(obj, RELOC_TYPE_OFFSET, *val_ptr, cs_ins->address+2, RELOC_HINT_NONE) == 0)
 					*val_ptr = 0;
 			}
 			break;
@@ -186,7 +205,7 @@ void reloc_x86_32(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 				val_ptr = (int*)(cs_ins->bytes + 1);
 				val = cs_ins->address + cs_ins->size + *val_ptr;
 			}
-			if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+1, 1) == 0)
+			if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+1, RELOC_HINT_JUMP) == 0)
 				break;
 				//*val_ptr = 0;
 			break;
@@ -224,7 +243,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			{
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
-				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, 0) == 0)
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, RELOC_HINT_NONE) == 0)
 					*val_ptr = 0;
 			}
 			break;
@@ -237,7 +256,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			{
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
-				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, 0) == 0)
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, RELOC_HINT_NONE) == 0)
 					*val_ptr = 0;
 			}
 			// 48 89 05 87 39 10 00 	mov    %rax,0x103987(%rip)
@@ -246,7 +265,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			{
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
-				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, 0) == 0)
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, RELOC_HINT_NONE) == 0)
 					*val_ptr = 0;
 			}
 
@@ -256,7 +275,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			{
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 1);
 				val = *val_ptr;
-				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, cs_ins->address+1, 0) == 0)
+				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, cs_ins->address+1, RELOC_HINT_NONE) == 0)
 					*val_ptr = 0;
 			}
 			break;
@@ -268,7 +287,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			{
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
-				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, 0) == 0)
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, RELOC_HINT_NONE) == 0)
 					*val_ptr = 0;
 			}
 			break;
@@ -282,7 +301,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 				int *val_ptr = (int*)((char*)pc - cs_ins->size + 1);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
 				//printf("Found CALL E8 to 0x%x @ 0x%lx\n", val, cs_ins->address);
-				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+1, 1) == 0)
+				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+1, RELOC_HINT_CALL) == 0)
 					*val_ptr = 0;
 			}
     		//	ff 15 66 2f 00 00    	callq  *0x2f66(%rip)        # 3fe0 <__libc_start_main@GLIBC_2.2.5>
@@ -305,7 +324,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			int *val_ptr = (int*)((char*)pc - cs_ins->size + 4);
 			val = cs_ins->address + *val_ptr + cs_ins->size;
 			//printf("Found VMOVAPD to 0x%x @ 0x%lx\n", val, cs_ins->address);
-			if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+4, 0) == 0)
+			if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+4, RELOC_HINT_NONE) == 0)
 				*val_ptr = 0;
 			break;
 
