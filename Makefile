@@ -7,10 +7,14 @@ OBJS_UNLINKER = $(C_OBJS_UNLINKER) $(CPP_OBJS_UNLINKER)
 INCLUDE_PATH = -Icapstone/include -Inucleus
 LIBRARY_PATH = -Lcapstone -Lnucleus
 
+CC = gcc
+CFLAGS = $(INCLUDE_PATH)
+CXXFLAGS = $(INCLUDE_PATH)
 CPPFLAGS = -O2
 
 ifeq ($(DEBUG), 1)
-CPPFLAGS+=-DDEBUG
+CFLAGS+=-DDEBUG
+CXXFLAGS+=-DDEBUG
 endif
 
 .PRECIOUS: *.o
@@ -25,8 +29,8 @@ capstone/libcapstone.a:
 nucleus/libnucleus.a:
 	make -C nucleus libnucleus.a
 
-delinker: capstone/libcapstone.a nucleus/libnucleus.a $(C_SRC_UNLINKER) $(CPP_SRC_UNLINKER)
-	g++ $(CPPFLAGS) $(C_SRC_UNLINKER) $(CPP_SRC_UNLINKER) $(INCLUDE_PATH) $(LIBRARY_PATH) -lcapstone -lnucleus -o delinker
+delinker: capstone/libcapstone.a nucleus/libnucleus.a $(C_OBJS_UNLINKER) $(CPP_OBJS_UNLINKER)
+	g++ $(C_OBJS_UNLINKER) $(CPP_OBJS_UNLINKER) $(INCLUDE_PATH) $(LIBRARY_PATH) -lcapstone -lnucleus -o delinker
 
 clean:
 	rm -rf $(OBJS_UNLINKER) delinker $(OBJS_OTOC) otoc

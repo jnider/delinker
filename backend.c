@@ -57,10 +57,9 @@ void backend_register(backend_ops* be)
       return;
    }
 
-	printf("registering backend %s\n", be->name());
+	DEBUG_PRINT("registering backend %s\n", be->name());
 
    backend[num_backends++] = be;
-   //printf("num backends %i\n", num_backends);
 }
 
 static int cmp_by_name(void* a, const void* b)
@@ -78,8 +77,7 @@ backend_type backend_lookup_target(const char* name)
 	// iterate through all known backends, comparing the string. When we find a match, convert the name to the correct type
    for (int i=0; i < num_backends; i++)
    {
-		//printf("Looking up %i\n", i);
-		//printf("Found backend %s\n", backend[i]->name());
+		DEBUG_PRINT("Found backend %s\n", backend[i]->name());
       if (backend[i]->name && strcmp(backend[i]->name(), name) == 0)
 			return backend[i]->format();
    }
@@ -132,7 +130,6 @@ backend_object* backend_create(void)
 
 backend_object* backend_read(const char* filename)
 {
-   //printf("backend_read\n");
    // run through all backends until we find one that recognizes the format and returns an object
    for (int i=0; i < num_backends; i++)
    {
@@ -145,16 +142,20 @@ backend_object* backend_read(const char* filename)
 
 int backend_write(backend_object* obj)
 {
-	//printf("backend_write looking for type %i\n", obj->type);
    // run through all backends until we find one that matches the output format
    for (int i=0; i < num_backends; i++)
    {
       if (backend[i]->format() == obj->type)
       {
          if (!backend[i]->write)
+			{
+				// someone should have told us sooner - why are we trying to write
+				// to an object type that we don't know how to write?
+				printf("This backend type doesn't have a write function!\n");
             return -2;
+			}
 
-			//printf("Using backend %i\n", i);
+			DEBUG_PRINT("Using backend %i\n", i);
          return backend[i]->write(obj, obj->name);
       }
    }
@@ -169,7 +170,7 @@ void backend_set_filename(backend_object* obj, const char* name)
 
 void backend_set_type(backend_object* obj, backend_type t)
 {
-	//printf("setting backend type to %i\n", t);
+	DEBUG_PRINT("setting backend type to %i\n", t);
    obj->type = t;
 }
 
@@ -208,7 +209,7 @@ static void dump_symbol_table(backend_object* obj)
    for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
 	{
 		backend_symbol *bs = (backend_symbol*)iter->val;
-		//printf("** %s 0x%lx\n", bs->name, bs->val);
+		DEBUG_PRINT("** %s 0x%lx\n", bs->name, bs->val);
 	}
 }
 
@@ -243,7 +244,7 @@ backend_symbol* backend_add_symbol(backend_object* obj, const char* name, unsign
 	s->src = NULL;
 
 	ll_add(obj->symbol_table, s);
-   //printf("There are %i symbols\n", backend_symbol_count(obj));
+   DEBUG_PRINT("There are %i symbols\n", backend_symbol_count(obj));
    return s;
 }
 
@@ -273,7 +274,6 @@ backend_symbol* backend_find_symbol_by_val(backend_object* obj, unsigned long va
    for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
 	{
 		bs = (backend_symbol*)iter->val;
-		//printf("** %s 0x%lx\n", bs->name, bs->val);
 		if ((bs->size == 0 && val == bs->val) || (val >= bs->val && val < (bs->val + bs->size)))
 			return bs;
 	}
@@ -289,7 +289,6 @@ backend_symbol* backend_find_symbol_by_name(backend_object* obj, const char* nam
    for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
 	{
 		backend_symbol *bs = (backend_symbol*)iter->val;
-		//printf("++ %s\n", bs->name);
 		if (bs->name && strcmp(bs->name, name) == 0)
 			return bs;
 	}
@@ -307,16 +306,10 @@ backend_symbol* backend_find_symbol_by_index(backend_object* obj, unsigned int i
 	{
 		if (!iter)
 			return NULL;
-		//backend_symbol *bs = (backend_symbol*)iter->val;
-		//printf("++ %s\n", bs->name);
 		iter=iter->next;
 	}
 	if (iter)
-	{
-		//backend_symbol *bs = (backend_symbol*)iter->val;
-		//printf("++ %s\n", bs->name);
 		return (backend_symbol*)iter->val;
-	}
 
 	return NULL;
 }
@@ -331,7 +324,6 @@ backend_symbol* backend_find_symbol_by_val_type(backend_object* obj, unsigned lo
 	for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
 	{
 		bs = (backend_symbol*)iter->val;
-//			printf("Found symbol %s (%lu)\n", bs->name, bs->val);
 		if (((bs->size == 0 && val == bs->val) || (val >= bs->val && val < (bs->val + bs->size))) && bs->type == type)
 			return bs;
 	}
@@ -374,9 +366,9 @@ backend_symbol* backend_merge_symbol(backend_object* obj, backend_symbol *sym)
 				return sym;
 
 			// there may be empty space between the functions, so we can't just add the sizes together
-			printf("Merging into %s: oldsize=%lu newsize=%lu\n", prev->name, prev->size, (sym->val + sym->size) - prev->val);
+			DEBUG_PRINT("Merging into %s: oldsize=%lu newsize=%lu\n", prev->name, prev->size, (sym->val + sym->size) - prev->val);
 			prev->size = (sym->val + sym->size) - prev->val;
-			printf("Removing %s\n", sym->name);
+			DEBUG_PRINT("Removing %s\n", sym->name);
 			backend_symbol *old = (backend_symbol *)ll_remove(obj->symbol_table, sym->name, cmp_by_name);
 			if (old)
 			{
@@ -457,10 +449,8 @@ unsigned int backend_get_symbol_index(backend_object* obj, backend_symbol* s)
    if (!obj || !obj->symbol_table || !s)
       return (unsigned int)-1;
 
-	//printf("+ %s\n", s->name);
    for (const list_node* iter=ll_iter_start(obj->symbol_table); iter != NULL; iter=iter->next)
 	{
-		//printf("** %s\n", ((backend_symbol*)(iter->val))->name);
 		if (iter->val == s)
 			return count;
 		count++;
@@ -549,7 +539,7 @@ unsigned int backend_section_count(backend_object* obj)
 {
    if (!obj->section_table)
    {
-      //printf("No section table yet\n");
+      DEBUG_PRINT("No section table yet\n");
       return 0;
    }
    return ll_size(obj->section_table);
@@ -575,9 +565,8 @@ backend_section* backend_add_section(backend_object* obj, const char* name, unsi
 	s->entry_size = entry_size;
    s->data = data;
 	s->alignment = alignment;
-   //printf("Adding section %s size:%i address:0x%lx entry size: %i flags:0x%x alignment %i\n", s->name, s->size, s->address, s->entry_size, s->flags, s->alignment);
+   DEBUG_PRINT("Adding section %s size:%i address:0x%lx entry size: %i flags:0x%x alignment %i\n", s->name, s->size, s->address, s->entry_size, s->flags, s->alignment);
    ll_add(obj->section_table, s);
-   //printf("There are %i sections\n", backend_section_count(obj));
    return s;
 }
 
@@ -603,7 +592,6 @@ backend_section* backend_get_section_by_index(backend_object* obj, unsigned int 
    for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
    {
       backend_section* sec = (backend_section*)iter->val;
-		//printf("++ %i %s\n", sec->index, sec->name);
       if (i++ == index)
          return sec;
    }
@@ -673,7 +661,6 @@ int backend_get_section_index_by_name(backend_object* obj, const char* name)
    for (const list_node* iter=ll_iter_start(obj->section_table); iter != NULL; iter=iter->next)
    {
       backend_section* sec = (backend_section*)iter->val;
-		//printf("-- %s\n", sec->name);
       if (!strcmp(name, sec->name))
          return index+1;
 		index++;
@@ -728,7 +715,7 @@ backend_symbol* backend_get_section_symbol(backend_object* obj, backend_section*
 		// I hate comparing pointers to objects like this, but what are my options?
 		if (bs->section == sec)
 		{
-			//printf("Found symbol %s for section %s\n", bs->name, sec->name);
+			DEBUG_PRINT("Found symbol %s for section %s\n", bs->name, sec->name);
 			break;
 		}
 		bs = backend_get_symbol_by_type_next(obj, SYMBOL_TYPE_SECTION);
@@ -738,14 +725,12 @@ backend_symbol* backend_get_section_symbol(backend_object* obj, backend_section*
 
 void backend_destructor(backend_object* obj)
 {
-	//printf("backend_destructor\n");
    // destroy the symbol table
    if (obj->symbol_table)
    {
       backend_symbol* s = (backend_symbol*)ll_pop(obj->symbol_table);
       while (s)
       {
-         //printf("Popped %s\n", s->name);
          free(s->name);
          free(s->src);
          free(s);
@@ -817,7 +802,7 @@ int backend_add_relocation(backend_object* obj, unsigned long offset, backend_re
    if (!obj)
 		return -1;
 
-	//printf("add relocation for %s @ 0x%lx type=%s\n", bs->name, offset, backend_lookup_reloc_type(t));
+	DEBUG_PRINT("add relocation for %s @ 0x%lx type=%s\n", bs->name, offset, backend_lookup_reloc_type(t));
    if (!obj->relocation_table)
       obj->relocation_table = ll_init();
 
@@ -941,7 +926,6 @@ backend_symbol* backend_find_import_by_address(backend_object* obj, unsigned lon
    		for (const list_node* s_iter=ll_iter_start(i->symbols); s_iter != NULL; s_iter=s_iter->next)
 			{
 				backend_symbol* s = (backend_symbol*)s_iter->val;
-				//printf("++ %s (0x%lx)\n", s->name, s->val);
 				if (s && s->val == addr)
 					return s;
 			}

@@ -3,7 +3,10 @@
 #include <disasm.h>
 #include <cfg.h>
 #include <options.h>
+
+extern "C" {
 #include "backend.h"
+}
 
 struct options options;
 
@@ -68,7 +71,7 @@ static int backend_object_to_Binary(Binary& bin, backend_object *obj)
 }
 
 /* reconstruct the symbol table by using the Nucleus algorithm */
-int nucleus_reconstruct_symbols(backend_object *obj)
+extern "C" int nucleus_reconstruct_symbols(backend_object *obj)
 {
 	Binary bin;
 	std::list<DisasmSection> disasm;

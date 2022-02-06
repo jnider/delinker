@@ -1,6 +1,12 @@
 #ifndef _CONFIG__H
 #define _CONFIG__H
 
+#ifdef DEBUG
+#define DEBUG_PRINT printf
+#else
+#define DEBUG_PRINT //
+#endif
+
 enum reconstructor_functions
 {
 	RECONSTRUCTOR_INTERNAL,
@@ -12,7 +18,7 @@ struct config
    int reconstruct_symbols;   // rebuild the symbol table
    int reconstructor;   		// function to use for symbol reconstruction (see RECONSTRUCTOR_)
    int verbose;               // print extra information at runtime
-	bool symbol_per_file;		// write one symbol in each file - this is really useful
+	int symbol_per_file;			// write one symbol in each file - this is really useful
 										// when planning to make modifications before relinking.
 	linked_list *ignore_list;	// List of symbols to ignore
 	char *entry_name;				// name of the entry point function

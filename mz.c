@@ -34,7 +34,7 @@ enum compression
 	MZ_COMPRESSION_LZ91
 };
 
-struct mz_header
+typedef struct mz_header
 {
 	unsigned short magic; // see MZ_MAGIC
 	unsigned short bytes_in_last_block;
@@ -51,7 +51,7 @@ struct mz_header
 	unsigned short reloc_table_offset;
 	unsigned short overlay_number;
 	unsigned char compression[4];
-};
+} mz_header;
 
 struct EXE_RELOC {
   unsigned short offset;

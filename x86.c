@@ -223,6 +223,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 	const uint8_t *pc = sec->data;
 	uint64_t pc_addr = sec->address;
 	size_t n = sec->size;
+	int *val_ptr;
 
 	//printf("x86_64: Disassembling from 0x%lx to 0x%lx\n", sec->address, sec->address + sec->size);
 
@@ -241,7 +242,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			if (cs_ins->size == 7 && cs_ins->bytes[0] == 0x48 && cs_ins->bytes[1] == 0x8d &&
 				(cs_ins->bytes[2] == 0x3d || cs_ins->bytes[2] == 0x35 || cs_ins->bytes[2] == 0x0d || cs_ins->bytes[2] == 0x05)) // rsi rdi rcx rax
 			{
-				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
+				val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
 				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, RELOC_HINT_NONE) == 0)
 					*val_ptr = 0;
@@ -254,7 +255,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 				(cs_ins->bytes[2] == 0x05 || cs_ins->bytes[2] == 0x0d || cs_ins->bytes[2] == 0x15 ||
 				cs_ins->bytes[2] == 0x35 || cs_ins->bytes[2] == 0x3d))
 			{
-				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
+				val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
 				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, RELOC_HINT_NONE) == 0)
 					*val_ptr = 0;
@@ -263,7 +264,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			else if (cs_ins->size == 7 && cs_ins->bytes[0] == 0x48 && cs_ins->bytes[1] == 0x89 &&
 				(cs_ins->bytes[2] == 0x05 || cs_ins->bytes[2] == 0x0d || cs_ins->bytes[2] == 0x15))
 			{
-				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
+				val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
 				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, RELOC_HINT_NONE) == 0)
 					*val_ptr = 0;
@@ -273,7 +274,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			// bf 43 08 40 00       	mov    $0x400843,%edi
 			else if (cs_ins->size == 5 && cs_ins->bytes[0] == 0xbf)
 			{
-				int *val_ptr = (int*)((char*)pc - cs_ins->size + 1);
+				val_ptr = (int*)((char*)pc - cs_ins->size + 1);
 				val = *val_ptr;
 				if (create_reloc(obj, RELOC_TYPE_OFFSET, val, cs_ins->address+1, RELOC_HINT_NONE) == 0)
 					*val_ptr = 0;
@@ -285,7 +286,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			if (cs_ins->size == 11 && cs_ins->bytes[0] == 0x48 && cs_ins->bytes[1] == 0xc7 &&
 				(cs_ins->bytes[2] == 0x05))
 			{
-				int *val_ptr = (int*)((char*)pc - cs_ins->size + 3);
+				val_ptr = (int*)((char*)pc - cs_ins->size + 3);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
 				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+3, RELOC_HINT_NONE) == 0)
 					*val_ptr = 0;
@@ -298,7 +299,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			// which needs to be replaced since the PLT may not survive
 			if (cs_ins->size == 5 && cs_ins->bytes[0] == 0xe8)
 			{
-				int *val_ptr = (int*)((char*)pc - cs_ins->size + 1);
+				val_ptr = (int*)((char*)pc - cs_ins->size + 1);
 				val = cs_ins->address + *val_ptr + cs_ins->size;
 				//printf("Found CALL E8 to 0x%x @ 0x%lx\n", val, cs_ins->address);
 				if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+1, RELOC_HINT_CALL) == 0)
@@ -321,7 +322,7 @@ void reloc_x86_64(backend_object* obj, backend_section* sec, csh cs_dis, cs_insn
 			// c5 fb 11 86 90 c1 ff ff  	vmovsd %xmm0,-0x3e70(%rsi)
 		case X86_INS_VMULSD:
 			// c5 eb 59 3d 7d 2f 00 00 	vmulsd 0x2f7d(%rip),%xmm2,%xmm7
-			int *val_ptr = (int*)((char*)pc - cs_ins->size + 4);
+			val_ptr = (int*)((char*)pc - cs_ins->size + 4);
 			val = cs_ins->address + *val_ptr + cs_ins->size;
 			//printf("Found VMOVAPD to 0x%x @ 0x%lx\n", val, cs_ins->address);
 			if (create_reloc(obj, RELOC_TYPE_PC_RELATIVE, val, cs_ins->address+4, RELOC_HINT_NONE) == 0)

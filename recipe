@@ -1,0 +1,42 @@
+#!/bin/bash
+
+_language c
+_language cpp
+CC=gcc
+CXX=g++
+
+INCLUDE_PATH=" -Icapstone/include -Inucleus"
+LIBRARY_PATH=" -Lcapstone -Lnucleus"
+CFLAGS="${INCLUDE_PATH}"
+CXXFLAGS="${INCLUDE_PATH}"
+
+LD_LIBRARIES=" -lcapstone -lnucleus"
+C_OBJS_UNLINKER=(delinker.o backend.o pe.o elf.o ll.o mz.o lz.o x86.o)
+CXX_OBJS_UNLINKER=(reconstruct.o)
+
+if [[ $DEBUG == 1 ]]; then
+	CFLAGS+=" -DDEBUG"
+	CXXFLAGS+=" -DDEBUG"
+fi
+
+#capstone_libcapstone_a
+delinker=(capstone/libcapstone.a nucleus/libnucleus.a ${C_OBJS_UNLINKER[*]} ${CXX_OBJS_UNLINKER[*]})
+main=(delinker)
+
+function rule_delinker()
+{
+	local target=$1
+	[[ $target == "delinker" ]] || return
+
+	echo "Linking $target"
+	cmd="$CXX ${C_OBJS_UNLINKER[*]} ${CXX_OBJS_UNLINKER[*]} ${LIBRARY_PATH} ${LD_LIBRARIES} -o $target"
+	[[ $__verbose ]] && echo $cmd
+	$cmd
+}
+
+function rule_clean()
+{
+	local target=$1
+	[[ $target == "clean" ]] || return
+	rm -rf ${C_OBJS_UNLINKER[*]} ${CXX_OBJS_UNLINKER[*]} ${main[*]}
+}
